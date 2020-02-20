@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+
 //
 // Code generators.
 //
@@ -208,6 +209,7 @@ public func FunctionReturnGenerator(_ b: ProgramBuilder) {
 
 public func ConstructorCallGenerator(_ b: ProgramBuilder) {
     let constructor = b.randVar(ofType: .constructor())
+
     let arguments = b.generateCallArguments(for: constructor)
     
     b.construct(constructor, withArgs: arguments)
@@ -295,7 +297,7 @@ public func DoWhileLoopGenerator(_ b: ProgramBuilder) {
 
 public func ForLoopGenerator(_ b: ProgramBuilder) {
     let start = b.loadInt(0)
-    let end = b.loadInt(Int.random(in: 0...10))
+    let end = b.loadInt(Int.random(in: 100...200))
     let step = b.loadInt(1)
     b.forLoop(start, .lessThan, end, .Add, step) { _ in
         b.generate()
@@ -424,6 +426,8 @@ public func PropertyAccessorGenerator(_ b: ProgramBuilder) {
     b.callMethod("defineProperty", on: Object, withArgs: [receiver, propertyName, descriptor])
 }
 
+
+
 public func ProxyGenerator(_ b: ProgramBuilder) {
     let target = b.randVar()
     
@@ -489,3 +493,324 @@ public func StoreToScopeGenerator(_ b: ProgramBuilder) {
     let value = b.randVar()
     b.storeToScope(value, as: b.genPropertyNameForWrite())
 }
+
+
+// wasm support
+public func BufferSourceGenerator(_ b: ProgramBuilder) {
+    
+    let buffer = b.fuzzer.bufferSource.randomElement()
+    var initialValues = [Variable]()
+    for index in 0..<buffer.count {
+        initialValues.append(b.loadInt(buffer[index]))
+    }
+    let AlterableArray = b.createArray(with: initialValues)
+    let constructor = b.loadBuiltin("Uint8Array")
+    b.construct(constructor, withArgs: [AlterableArray])
+    
+}
+
+public func GlobalDescriptorFloatGenerator(_ b: ProgramBuilder) {
+    var initialProperties = [String: String]()
+    initialProperties = ["value": Bool.random() ? "\"f32\"" : "\"f64\"", "mutable": Bool.random() ? "true": "false"]
+    let GlobalDescriptorFloat = b.createObjectWithValue(with: initialProperties)
+    b.alter(GlobalDescriptorFloat, "GlobalDescriptorFloat")
+}
+
+public func GlobalDescriptorIntGenerator(_ b: ProgramBuilder) {
+    
+   var initialProperties = [String: String]()
+     initialProperties = ["value": Bool.random() ? "\"i32\"" : "\"i64\"", "mutable": Bool.random() ? "true": "false"]
+     let GlobalDescriptorInt = b.createObjectWithValue(with: initialProperties)
+     b.alter(GlobalDescriptorInt, "GlobalDescriptorInt")
+}
+
+public func TableDescriptor(_ b: ProgramBuilder) {
+    var initialProperties = [String: String]()
+    withEqualProbability({
+       initialProperties = ["element": "\"anyfunc\"", "initial": String(CInt.random(in: 0...42))]
+    }, {
+       initialProperties = ["element": "\"anyfunc\"", "initial": String(CInt.random(in: 0...42)), "maximum": String(CInt.random(in: 43...99))]
+    })
+
+    let TableDescriptor = b.createObjectWithValue(with: initialProperties)
+    b.alter(TableDescriptor, "TableDescriptor")
+    
+}
+
+public func MemoryDescriptor(_ b: ProgramBuilder) {
+    var initialProperties = [String: String]()
+    withEqualProbability({
+        initialProperties = ["initial": String(Int.random(in: 0...9))]
+    }, {
+        initialProperties = ["initial": String(Int.random(in: 0...9)), "maximum": String(Int.random(in: 9...999))]
+    })
+    
+    let MemoryDescriptor = b.createObjectWithValue(with: initialProperties)
+    b.alter(MemoryDescriptor, "MemoryDescriptor")
+    
+}
+
+
+public func ImportObjectGenerator(_ b: ProgramBuilder) {
+    
+    // need to optimize
+    
+    var initialProperties = [String: Variable]()
+    withEqualProbability({
+        initialProperties = [:]
+    }, {
+        let MemoryWasmObject = b.generalWasmObject(.MemoryWasmObject)
+        initialProperties = ["mem": MemoryWasmObject]
+        initialProperties = ["js": b.createObject(with: initialProperties)]
+    }, {
+        let TableWasmObject = b.generalWasmObject(.TableWasmObject)
+        initialProperties = ["tbl": TableWasmObject]
+        initialProperties = ["js": b.createObject(with: initialProperties)]
+    })
+    
+    let o = b.createObject(with: initialProperties)
+    b.alter(o, "ImportObject")
+
+}
+
+
+
+public func GlobalWasmObjectGenerator(_ b: ProgramBuilder) {
+    var arguments = [Variable]()
+    withEqualProbability({
+        arguments = [b.generalWasmObject(.GlobalDescriptorFloat), b.loadFloat(b.genFloat())]
+    }, {
+        arguments = [b.generalWasmObject(.GlobalDescriptorInt), b.loadNumber(b.genInt())]
+    })
+
+    let constructor = b.loadBuiltin("WebAssembly.Global") //type: GlobalWasmConstructor
+    b.construct(constructor, withArgs: arguments)
+}
+
+
+public func TableWasmObjectGenerator(_ b: ProgramBuilder) {
+
+    let TableDescriptor = b.generalWasmObject(.TableDescriptor)
+    let constructor = b.loadBuiltin("WebAssembly.Table")
+    b.construct(constructor, withArgs: [TableDescriptor])
+}
+
+
+
+public func MemoryWasmObjectGenerator(_ b: ProgramBuilder) {
+    
+    let MemoryDescriptor = b.generalWasmObject(.MemoryDescriptor)
+    let constructor = b.loadBuiltin("WebAssembly.Memory")
+    b.construct(constructor, withArgs: [MemoryDescriptor])
+}
+
+
+public func ModuleWasmObjectGenerator(_ b: ProgramBuilder) {
+
+    let BufferSource = b.generalWasmObject(.jsTypedArray("Uint8Array"))
+    
+    let constructor = b.loadBuiltin("WebAssembly.Module")
+    b.construct(constructor, withArgs: [BufferSource])
+}
+
+
+public func InstanceWasmObjectGenerator(_ b: ProgramBuilder) {
+    let constructor = b.loadBuiltin("WebAssembly.Instance")
+    let ModuleWasmObject = b.generalWasmObject(.ModuleWasmObject)
+    let ImportObject = b.generalWasmObject(.ImportObject)
+    b.construct(constructor, withArgs: [ModuleWasmObject, ImportObject])
+
+}
+
+
+
+public func GlobalWasmObjectCallGenerator(_ b: ProgramBuilder) {
+    // find one globalwasm object
+    let GlobalWasmObject = b.generalWasmObject(.GlobalWasmObject)
+    let methodName = b.type(of: GlobalWasmObject).randomMethod() ?? b.genMethodName()
+    b.callMethod(methodName, on: GlobalWasmObject, withArgs: [])
+}
+
+
+public func TableWasmObjectCallGenerator(_ b: ProgramBuilder) {
+    let TableWasmObject = b.generalWasmObject(.TableWasmObject)
+    let methodName = b.type(of: TableWasmObject).randomMethod() ?? b.genMethodName()
+    let arguments:[Variable]
+    switch methodName {
+    case "get":
+        arguments = [b.loadNumber(Int.random(in: 0...42))]
+    case "grow":
+        arguments = [b.loadNumber(Int.random(in: 0...42))]
+    default:
+        arguments = b.generateCallArguments(forMethod: methodName, on: TableWasmObject)
+    }
+    
+    b.callMethod(methodName, on: TableWasmObject, withArgs: arguments)
+}
+
+
+public func MemoryWasmObjectCallGenerator(_ b: ProgramBuilder) {
+    let MemoryWasmObject = b.generalWasmObject(.MemoryWasmObject)
+    let methodName = b.type(of: MemoryWasmObject).randomMethod() ?? b.genMethodName()
+    let arguments = b.generateCallArguments(forMethod: methodName, on: MemoryWasmObject)
+    b.callMethod(methodName, on: MemoryWasmObject, withArgs: arguments)
+}
+
+
+public func ModuleWasmObjectCallGenerator(_ b: ProgramBuilder) {
+    let ModuleWasmObject = b.generalWasmObject(.ModuleWasmObject)
+    let methodName = b.type(of: ModuleWasmObject).randomMethod() ?? b.genMethodName()
+    let function = b.loadBuiltin(methodName)
+    let arguments:[Variable]
+    
+
+    switch methodName {
+    case "WebAssembly.Module.customSections":
+        arguments = [ModuleWasmObject, b.loadString(chooseUniform(from: JavaScriptEnvironment.sectionName))]
+    case "WebAssembly.Module.exports":
+        arguments = [ModuleWasmObject]
+    case "WebAssembly.Module.imports":
+        arguments = [ModuleWasmObject]
+    default:
+        fatalError("No such method for Module")
+    }
+    
+    b.callFunction(function, withArgs: arguments)
+    
+}
+
+public func InstanceWasmObjectCallGenerator(_ b: ProgramBuilder) {
+    
+    let InstanceWasmObject = b.generalWasmObject(.InstanceWasmObject)
+    let methodName = b.type(of: InstanceWasmObject).randomMethod() ?? b.genMethodName()
+    let arguments = b.generateCallArguments(forMethod: methodName, on: InstanceWasmObject)
+    b.callMethod(methodName, on: InstanceWasmObject, withArgs: arguments)
+}
+
+public func WasmMethodCallGenerator(_ b: ProgramBuilder) {
+    let BufferSource = b.generalWasmObject(.jsTypedArray("Uint8Array"))
+    let function = b.loadBuiltin(chooseUniform(from: ["WebAssembly.validate", "WebAssembly.compile"]))
+    let arguments:[Variable]
+    
+    arguments = [BufferSource]
+    b.callFunction(function, withArgs: arguments)
+    
+}
+
+public func SpecialWasmObjectCallGenerator(_ b: ProgramBuilder, _ type: Type, _ methodName: String, _ arguments: [Variable]){
+    
+    let WasmObject = b.generalWasmObject(type)
+    b.callMethod(methodName, on: WasmObject, withArgs: arguments)
+}
+
+
+public func WasmPropertyRetrievalGenerator(_ b: ProgramBuilder) {
+
+    let candidates:[Type] = [.GlobalWasmObject, .TableWasmObject, .MemoryWasmObject, .ModuleWasmObject, .InstanceWasmObject]
+    let object = b.randVar(ofType: chooseUniform(from: candidates))
+    let propertyName = b.type(of: object).randomProperty() ?? b.genPropertyNameForRead()
+    b.loadProperty(propertyName, of: object)
+}
+
+public func WasmPropertyAssignmentGenerator(_ b: ProgramBuilder) {
+    
+    let candidates:[Type] = [.GlobalWasmObject, .TableWasmObject, .MemoryWasmObject, .ModuleWasmObject, .InstanceWasmObject]
+    let object = b.randVar(ofType: chooseUniform(from: candidates))
+    let propertyName: String
+    // Either change an existing property or define a new one
+    propertyName = b.type(of: object).randomProperty() ?? b.genPropertyNameForWrite()
+    let value = b.randVar()
+    b.storeProperty(value, as: propertyName, on: object)
+}
+
+public func WasmPropertyRemovalGenerator(_ b: ProgramBuilder) {
+    
+    let candidates:[Type] = [.GlobalWasmObject, .TableWasmObject, .MemoryWasmObject, .ModuleWasmObject, .InstanceWasmObject]
+    let object = b.randVar(ofType: chooseUniform(from: candidates))
+    let propertyName = b.type(of: object).randomProperty() ?? b.genPropertyNameForWrite()
+    b.deleteProperty(propertyName, of: object)
+}
+
+
+
+
+public func CVE_2020_0768(_ b: ProgramBuilder){
+//    const v2 = undefined;
+//    let v4 = 0;
+//    while (v4 === v4) {
+//        if (v2) {
+//            const v9 = [1337];
+//            [v9];
+//        }
+//        const v11 = v4 + 1;
+//        v4 = v11;
+//    }
+    let v2 = b.const(b.loadUndefined())
+    let v4 = b.phi(b.loadInt(0))
+    b.whileLoop(v4, .strictEqual, v4) {
+        b.beginIf(v2) {
+            let v9 = b.createArray(with: [b.loadInt(1337)])
+            b.createArray(with: [v9])
+
+        }
+        b.beginElse {
+            b.beginIf(v2) {}
+            b.endIf()
+            
+        }
+        
+        b.endIf()
+        
+        let v11 = b.binary(v4, b.loadInt(1), with: .Add)
+        b.copy(v11, to: v4)
+    }
+
+}
+
+
+
+
+//public func GeneralWasmObjectGenerator(_ b: ProgramBuilder, _ t: Type) -> Variable {
+//    var GeneralWasmObject : Variable?
+//    switch t {
+//    case .GlobalWasmObject:
+//        GeneralWasmObject = b.randVar(ofGuaranteedType: .GlobalWasmObject)
+//        if GeneralWasmObject == nil {
+//            GlobalWasmObjectGenerator(b)
+//            GeneralWasmObject = b.randVar(ofGuaranteedType: .GlobalWasmObject)
+//        }
+//
+//    case .TableWasmObject:
+//        GeneralWasmObject = b.randVar(ofGuaranteedType: .TableWasmObject)
+//        if GeneralWasmObject == nil {
+//            TableWasmObjectGenerator(b)
+//            GeneralWasmObject = b.randVar(ofGuaranteedType: .TableWasmObject)
+//        }
+//
+//    case .MemoryWasmObject:
+//        GeneralWasmObject = b.randVar(ofGuaranteedType: .MemoryWasmObject)
+//        if GeneralWasmObject == nil {
+//            MemoryWasmObjectGenerator(b)
+//            GeneralWasmObject = b.randVar(ofGuaranteedType: .MemoryWasmObject)
+//        }
+//
+//    case .ModuleWasmObject:
+//        GeneralWasmObject = b.randVar(ofGuaranteedType: .ModuleWasmObject)
+//        if GeneralWasmObject == nil {
+//            ModuleWasmObjectGenerator(b)
+//            GeneralWasmObject = b.randVar(ofGuaranteedType: .ModuleWasmObject)
+//        }
+//
+//    case .ImportObject:
+//        GeneralWasmObject = b.randVar(ofGuaranteedType: .ImportObject)
+//        if GeneralWasmObject == nil {
+//            ImportObjectGenerator(b)
+//            GeneralWasmObject = b.randVar(ofGuaranteedType: .ImportObject)
+//        }
+//    default:
+//        fatalError("Object Type \(n) is not supported")
+//    }
+//
+//    return GeneralWasmObject!
+//}
+

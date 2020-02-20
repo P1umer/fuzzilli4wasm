@@ -17,6 +17,7 @@ public struct AbstractInterpreter {
     // States are kept in a stack to support conditional execution.
     private var ifStack: [VariableMap<Type>] = []
     private var stack: [VariableMap<Type>] = [VariableMap<Type>()]
+    private var ifList: [Int] = [] // 1 means single if; 2 means if-else
     
     // The currently active state.
     private var currentState: VariableMap<Type> {
@@ -45,12 +46,18 @@ public struct AbstractInterpreter {
             stack.append(merge(functionState, previousState))
         case is BeginIf:
             stack.append(currentState)
+            ifList.append(1)
         case is BeginElse:
             ifStack.append(stack.removeLast())
+            ifList[ifList.count-1] = 2
         case is EndIf:
-            let ifState = ifStack.removeLast()
-            let elseState = stack.removeLast()
-            stack.append(merge(ifState, elseState))
+            if ( ifList.removeLast() > 1) {
+                let ifState = ifStack.removeLast()
+                let elseState = stack.removeLast()
+                stack.append(merge(ifState, elseState))
+            } else {
+                stack.append(merge(stack.removeLast(), stack.removeLast()))
+            }
         case is BeginWhile:
             stack.append(currentState)
         case is EndWhile:
@@ -130,7 +137,7 @@ public struct AbstractInterpreter {
             return signature
         }
         
-        // Then check well-known methods of this execution environment.
+        // Then check well-known methods of this execution environment. return the registed signature
         return environment.signature(ofMethod: methodName, on: type(of: object))
     }
     
@@ -153,6 +160,7 @@ public struct AbstractInterpreter {
     /// Attempts to infer the constructed type of the given constructor.
     private func inferConstructedType(of constructor: Variable) -> Type {
         if let signature = type(of: constructor).constructorSignature {
+
             return signature.outputType
         }
         
@@ -195,6 +203,10 @@ public struct AbstractInterpreter {
         case is LoadInteger:
             set(instr.output, environment.intType)
             
+        case is LoadNumber:
+            
+            set(instr.output, environment.intType)
+            
         case is LoadFloat:
             set(instr.output, environment.floatType)
             
@@ -222,6 +234,9 @@ public struct AbstractInterpreter {
             }
             set(instr.output, environment.objectType + .object(withProperties: properties, withMethods: methods))
             
+        case is CreateObjectWithValue:
+            set(instr.output, environment.objectType)
+
         case let op as CreateObjectWithSpread:
             var properties: [String] = []
             var methods: [String] = []
@@ -244,7 +259,7 @@ public struct AbstractInterpreter {
             set(instr.output, environment.arrayType)
             
         case let op as StoreProperty:
-            set(instr.input(0), type(of: instr.input(0)).adding(property: op.propertyName))
+            set(instr.input(0), type(of: instr.input(0)).adding(property: op.propertyName)) //?
             
         case let op as DeleteProperty:
             set(instr.input(0), type(of: instr.input(0)).removing(property: op.propertyName))
@@ -261,6 +276,7 @@ public struct AbstractInterpreter {
             set(instr.output, inferCallResultType(of: instr.input(0)))
             
         case let op as CallMethod:
+            
             set(instr.output, inferMethodReturnType(of: op.methodName, on: instr.input(0)))
             
         case is Construct:
@@ -347,6 +363,13 @@ public struct AbstractInterpreter {
             
         case is BeginCatch:
             set(instr.innerOutput, .unknown)
+        
+        //add the Alter opcode
+        case let op as Alter:
+            set(instr.output, environment.type(forTypeName: op.typeName))
+        
+        case is Const:
+            set(instr.output, type(of: instr.input(0)))
             
         default:
             assert(!instr.hasOutput)

@@ -44,7 +44,7 @@ let v8Profile = Profile(
     
     codeSuffix: """
                 }
-                %NeverOptimizeFunction(main);
+                %OptimizeFunctionOnNextCall(main);
                 main();
                 """,
     
@@ -52,6 +52,10 @@ let v8Profile = Profile(
     
     additionalCodeGenerators: WeightedList<CodeGenerator>([
         (ForceV8TurbofanGenerator, 10),
+        (GlobalDescriptorIntGenerator,   10),
+        (GlobalDescriptorFloatGenerator, 10),
+        (GlobalWasmObjectGenerator,      20),
+        (GlobalWasmObjectCallGenerator,  50),
     ]),
     
     additionalBuiltins: [

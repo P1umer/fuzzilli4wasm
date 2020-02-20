@@ -40,6 +40,8 @@ class MockEnvironment: ComponentBase, Environment {
     
     var interestingStrings: [String] = ["foo", "bar"]
     
+    var interestingSectionName: [String] = ["debug", ""]
+    
     
     var builtins: Set<String>
     
@@ -72,6 +74,10 @@ class MockEnvironment: ComponentBase, Environment {
         return builtinTypes[builtinName] ?? .unknown
     }
     
+    func type(forTypeName typeName: String) -> Type {
+        return extraTypes[typeName] ?? .unknown
+    }
+    
     func type(ofProperty propertyName: String, on baseType: Type) -> Type {
         if let groupName = baseType.group {
             if let groupProperties = propertiesByGroup[groupName] {
@@ -95,11 +101,13 @@ class MockEnvironment: ComponentBase, Environment {
     }
     
     let builtinTypes: [String: Type]
+    let extraTypes: [String: Type]
     let propertiesByGroup: [String: [String: Type]]
     let methodsByGroup: [String: [String: FunctionSignature]]
     
-    init(builtins builtinTypes: [String: Type], propertiesByGroup: [String: [String: Type]] = [:], methodsByGroup: [String: [String: FunctionSignature]] = [:]) {
+    init(builtins builtinTypes: [String: Type], propertiesByGroup: [String: [String: Type]] = [:], methodsByGroup: [String: [String: FunctionSignature]] = [:], extraTypes: [String: Type] = [:]) {
         self.builtinTypes = builtinTypes
+        self.extraTypes = extraTypes
         // Builtins must not be empty for now
         self.builtins = builtinTypes.isEmpty ? Set(["Foo", "Bar"]) : Set(builtinTypes.keys)
         self.propertiesByGroup = propertiesByGroup
@@ -172,6 +180,8 @@ func makeMockFuzzer(runner maybeRunner: ScriptRunner? = nil, environment maybeEn
     // Minimizer to minimize crashes and interesting programs.
     let minimizer = Minimizer()
     
+    let buffersource = BufferSource(samplePath: "", maxCacheSize: 100)
+    
     // Construct the fuzzer instance.
     let fuzzer = Fuzzer(configuration: configuration,
                         scriptRunner: runner,
@@ -182,7 +192,8 @@ func makeMockFuzzer(runner maybeRunner: ScriptRunner? = nil, environment maybeEn
                         lifter: lifter,
                         corpus: corpus,
                         minimizer: minimizer,
-                        queue: OperationQueue.main)
+                        queue: OperationQueue.main,
+                        bufferSource: buffersource)
     
     fuzzer.initialize()
     return fuzzer

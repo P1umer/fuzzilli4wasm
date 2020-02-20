@@ -246,6 +246,8 @@ public struct Instruction: Codable {
         switch operation {
         case let op as LoadInteger:
             try container.encode(op.value, forKey: .opData1)
+        case let op as LoadNumber:
+            try container.encode(op.value, forKey: .opData1)
         case let op as LoadFloat:
             // Workaround: we don't want doubles in the JSON data so we store them as string
             // change this once we move to a different encoding
@@ -300,6 +302,8 @@ public struct Instruction: Codable {
         case let op as BeginFor:
             try container.encode(op.comparator.rawValue, forKey: .opData1)
             try container.encode(op.op.rawValue, forKey: .opData2)
+        case let op as Alter:
+            try container.encode(op.typeName, forKey: .opData1)
         case is LoadUndefined,
              is LoadNull,
              is CreateArray,
@@ -314,6 +318,7 @@ public struct Instruction: Codable {
              is CallFunction,
              is Construct,
              is Phi,
+             is Const,
              is Copy,
              is BeginWith,
              is EndWith,
@@ -358,6 +363,8 @@ public struct Instruction: Codable {
             self.operation = Nop()
         case LoadInteger.typeId:
             self.operation = LoadInteger(value: try container.decode(Int.self, forKey: .opData1))
+        case LoadNumber.typeId:
+            self.operation = LoadNumber(value: try container.decode(Int.self, forKey: .opData1))
         case LoadFloat.typeId:
             let data = try container.decode(String.self, forKey: .opData1)
             if let value = Double(data) {
@@ -437,6 +444,8 @@ public struct Instruction: Codable {
             self.operation = BinaryOperation(BinaryOperator(rawValue: try container.decode(String.self, forKey: .opData1))!)
         case Phi.typeId:
             self.operation = Phi()
+        case Const.typeId:
+            self.operation = Const()
         case Copy.typeId:
             self.operation = Copy()
         case Compare.typeId:
@@ -489,6 +498,8 @@ public struct Instruction: Codable {
             self.operation = EndTryCatch()
         case ThrowException.typeId:
             self.operation = ThrowException()
+        case Alter.typeId:
+            self.operation = Alter(typeName: try container.decode(String.self, forKey: .opData1))
         default:
             throw DecodingError.unknownOperationError("Unexpected operation type: \(opName)")
         }

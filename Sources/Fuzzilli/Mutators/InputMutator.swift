@@ -34,11 +34,18 @@ public class InputMutator: BaseInstructionMutator {
         } else if instr.isBlockEnd {
             // Need to choose from the outer scope
             newInput = b.randVarFromOuterScope()
+        } else if (instr.operation is Construct && selectedInput == 0) || instr.operation is Alter {
+            // no change
+            newInput = inouts[selectedInput]
         } else {
-            newInput = b.randVar()
+            // same type
+            let type = b.type(of: inouts[selectedInput])
+            
+            newInput = b.randVar(ofType: type) // never gen new
         }
         inouts[selectedInput] = newInput
-                
+        
+        
         b.append(Instruction(operation: instr.operation, inouts: inouts))
     }
 }

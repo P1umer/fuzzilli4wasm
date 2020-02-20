@@ -23,6 +23,8 @@ public protocol Environment: Component {
     /// List of string values that might yield interesting behaviour or trigger edge cases in the target language.
     var interestingStrings: [String] { get }
     
+    /// List of sectionName
+    var interestingSectionName: [String] { get }
     
     /// List of all builtin objects in the target environment.
     var builtins: Set<String> { get }
@@ -65,6 +67,9 @@ public protocol Environment: Component {
     
     /// Retuns the type of the builtin with the given name.
     func type(ofBuiltin builtinName: String) -> Type
+    
+    /// Retuns the type for the given type name.
+    func type(forTypeName typeName: String) -> Type
     
     /// Returns the type of the property on the provided base object.
     func type(ofProperty propertyName: String, on baseType: Type) -> Type

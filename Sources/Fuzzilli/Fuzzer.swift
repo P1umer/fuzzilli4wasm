@@ -57,6 +57,8 @@ public class Fuzzer {
     // The minimizer to shrink programs that cause crashes or trigger new interesting behaviour.
     public let minimizer: Minimizer
     
+    public let bufferSource: BufferSource
+    
     /// The modules active on this fuzzer.
     var modules = [String: Module]()
     
@@ -68,7 +70,7 @@ public class Fuzzer {
     private var iterations = 0
 
     /// Constructs a new fuzzer instance with the provided components.
-    public init(configuration: Configuration, scriptRunner: ScriptRunner, coreFuzzer: FuzzerCore, codeGenerators: WeightedList<CodeGenerator>, evaluator: ProgramEvaluator, environment: Environment, lifter: Lifter, corpus: Corpus, minimizer: Minimizer, queue: OperationQueue? = nil) {
+    public init(configuration: Configuration, scriptRunner: ScriptRunner, coreFuzzer: FuzzerCore, codeGenerators: WeightedList<CodeGenerator>, evaluator: ProgramEvaluator, environment: Environment, lifter: Lifter, corpus: Corpus, minimizer: Minimizer, queue: OperationQueue? = nil, bufferSource : BufferSource) {
         self.id = UUID()
         self.queue = queue ?? OperationQueue()
         self.queue.maxConcurrentOperationCount = 1
@@ -85,6 +87,7 @@ public class Fuzzer {
         self.corpus = corpus
         self.runner = scriptRunner
         self.minimizer = minimizer
+        self.bufferSource = bufferSource
     }
     
     /// Adds a module to this fuzzer. Can only be called before the fuzzer is initialized.
@@ -148,6 +151,7 @@ public class Fuzzer {
         environment.initialize(with: self)
         corpus.initialize(with: self)
         minimizer.initialize(with: self)
+        bufferSource.initialize(with: self)
         
         // Finally initialize all modules.
         for module in modules.values {
@@ -158,12 +162,27 @@ public class Fuzzer {
         if corpus.isEmpty {
             let b = makeBuilder()
             
-            let objectConstructor = b.loadBuiltin("Object")
-            b.callFunction(objectConstructor, withArgs: [])
+//            let objectConstructor = b.loadBuiltin("Object")
+//            b.callFunction(objectConstructor, withArgs: [])
+            let buffer = [0,97,115,109,1,0,0,0,1,133,128,128,128,0,1,96,0,1,127,3,130,128,128,128,0,1,0,4,132,128,128,128,0,1,112,0,0,5,131,128,128,128,0,1,0,1,6,129,128,128,128,0,0,7,145,128,128,128,0,2,6,109,101,109,111,114,121,2,0,4,109,97,105,110,0,0,10,138,128,128,128,0,1,132,128,128,128,0,0,65,42,11]
+            
+            var initialValues = [Variable]()
+            for index in 0..<buffer.count {
+                initialValues.append(b.loadInt(buffer[index]))
+            }
+            let AlterableArray = b.createArray(with: initialValues)
+            let constructor = b.loadBuiltin("Uint8Array")
+            b.construct(constructor, withArgs: [AlterableArray])
             
             let program = b.finish()
             
+            
             corpus.add(program)
+        }
+        
+        if bufferSource.isEmpty {
+            let buffer = [0,97,115,109,1,0,0,0,1,133,128,128,128,0,1,96,0,1,127,3,130,128,128,128,0,1,0,4,132,128,128,128,0,1,112,0,0,5,131,128,128,128,0,1,0,1,6,129,128,128,128,0,0,7,145,128,128,128,0,2,6,109,101,109,111,114,121,2,0,4,109,97,105,110,0,0,10,138,128,128,128,0,1,132,128,128,128,0,0,65,42,11]
+            bufferSource.add(buffer)
         }
         
         // Install a watchdog to monitor utilization of master instances.
@@ -309,21 +328,21 @@ public class Fuzzer {
     private func makeComplexProgram() -> Program {
         let b = makeBuilder()
         
-        let f = b.defineFunction(withSignature: FunctionSignature(withParameterCount: 2), isJSStrictMode: false) { params in
-            let x = b.loadProperty("x", of: params[0])
-            let y = b.loadProperty("y", of: params[0])
-            let s = b.binary(x, y, with: .Add)
-            let p = b.binary(s, params[1], with: .Mul)
-            b.doReturn(value: p)
-        }
-        
-        b.forLoop(b.loadInt(0), .lessThan, b.loadInt(1000), .Add, b.loadInt(1)) { i in
-            let x = b.loadInt(42)
-            let y = b.loadInt(43)
-            let arg1 = b.createObject(with: ["x": x, "y": y])
-            let arg2 = i
-            b.callFunction(f, withArgs: [arg1, arg2])
-        }
+//        let f = b.defineFunction(withSignature: FunctionSignature(withParameterCount: 2), isJSStrictMode: false) { params in
+//            let x = b.loadProperty("x", of: params[0])
+//            let y = b.loadProperty("y", of: params[0])
+//            let s = b.binary(x, y, with: .Add)
+//            let p = b.binary(s, params[1], with: .Mul)
+//            b.doReturn(value: p)
+//        }
+//
+//        b.forLoop(b.loadInt(0), .lessThan, b.loadInt(1000), .Add, b.loadInt(1)) { i in
+//            let x = b.loadInt(42)
+//            let y = b.loadInt(43)
+//            let arg1 = b.createObject(with: ["x": x, "y": y])
+//            let arg2 = i
+//            b.callFunction(f, withArgs: [arg1, arg2])
+//        }
         
         return b.finish()
     }

@@ -74,6 +74,8 @@ public class JavaScriptLifter: ComponentBase, Lifter {
                 switch analyzer.definition(of: instr.input(idx)).operation {
                 case let op as LoadInteger:
                     return op.value
+                case let op as LoadNumber:
+                    return op.value
                 case let op as LoadFloat:
                     return op.value
                 case let op as LoadString:
@@ -95,6 +97,9 @@ public class JavaScriptLifter: ComponentBase, Lifter {
                 break
                 
             case let op as LoadInteger:
+                output = NumberLiteral.new(String(op.value))
+            
+            case let op as LoadNumber:
                 output = NumberLiteral.new(String(op.value))
                 
             case let op as LoadFloat:
@@ -125,6 +130,14 @@ public class JavaScriptLifter: ComponentBase, Lifter {
                 for (index, propertyName) in op.propertyNames.enumerated() {
                     properties.append(propertyName + ":" + input(index))
                 }
+                output = ObjectLiteral.new("{" + properties.joined(separator: ",") + "}")
+
+            case let op as CreateObjectWithValue:
+                var properties = [String]()
+                for (index, propertyName) in op.propertyNames.enumerated() {
+                    properties.append(propertyName + ":" + op.propertyValues[index])
+                }
+                properties.sort()
                 output = ObjectLiteral.new("{" + properties.joined(separator: ",") + "}")
                 
             case is CreateArray:
@@ -263,8 +276,15 @@ public class JavaScriptLifter: ComponentBase, Lifter {
             case is Phi:
                 w.emit("\(varDecl) \(instr.output) = \(input(0));")
                 
+            case is Alter:
+                w.emit("\(varDecl) \(instr.output) = \(input(0));")
+                
             case is Copy:
                 w.emit("\(instr.input(0)) = \(input(1));")
+                
+            case is Const:
+                w.emit("const \(instr.output) = \(input(0));")
+            
                 
             case let op as Compare:
                 output = BinaryExpression.new() <> input(0) <> " " <> op.comparator.token <> " " <> input(1)
@@ -447,7 +467,7 @@ public class JavaScriptLifter: ComponentBase, Lifter {
         }
         
         w.emitBlock(suffix)
-
+        //print(w.code)
         return w.code
     }
 }

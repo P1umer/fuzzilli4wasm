@@ -35,8 +35,20 @@ public class ProgramBuilder {
     private var contextAnalyzer = ContextAnalyzer()
     
     /// Abstract interpreter to computer type information.
-    private var interpreter: AbstractInterpreter
+    /*private*/ var interpreter: AbstractInterpreter
     
+    private var wasmType:[Type] = [.GlobalWasmObject,
+                                   .TableWasmObject,
+                                   .MemoryWasmObject,
+                                   .ModuleWasmObject,
+                                   .InstanceWasmObject,
+                                   .FuncRefObject,
+                                   .ImportObject,
+                                   .GlobalDescriptorFloat,
+                                   .GlobalDescriptorInt,
+                                   .TableDescriptor,
+                                   .MemoryDescriptor,
+                                   .jsTypedArray("Uint8Array")]
     
     /// Constructs a new program builder for the given fuzzer.
     init(for fuzzer: Fuzzer) {
@@ -147,10 +159,20 @@ public class ProgramBuilder {
     
     /// Returns a random variable of the given type or of another type if none is available.
     public func randVar(ofType wantedType: Type) -> Variable {
-        // For now, we always mix in .unknown into the requested type.
-        // Probably in the future we want to have a "conservative" mode where we
-        // don't to that.
-        if let v = randVarInternal({ self.type(of: $0).Is(wantedType | .unknown) }) {
+        
+        
+        
+        // we need to add one filter here
+        // the type need to be guaranteed
+        
+        if wasmType.contains(wantedType){
+            return generalWasmObject(wantedType)
+        } else if let v = randVarInternal({ self.type(of: $0).Is(wantedType | .unknown) }) {
+            
+            // For now, we always mix in .unknown into the requested type.
+            // Probably in the future we want to have a "conservative" mode where we
+            // don't to that.
+            
             return v
         } else {
             // Must use variable of a different type
@@ -304,10 +326,30 @@ public class ProgramBuilder {
     
     // Code generators that can be used even if no variables exist yet.
     private let primitiveGenerators = [
-        IntegerLiteralGenerator,
-        FloatLiteralGenerator,
-        StringLiteralGenerator,
-        BooleanLiteralGenerator
+         CVE_2020_0768,
+//        IntegerLiteralGenerator,
+//        FloatLiteralGenerator,
+//        StringLiteralGenerator,
+          BufferSourceGenerator,
+//          GlobalDescriptorIntGenerator,
+//          GlobalDescriptorIntGenerator,
+//          TableDescriptor,
+//          MemoryDescriptor,
+//          GlobalWasmObjectGenerator,
+//          TableWasmObjectGenerator,
+//          MemoryWasmObjectGenerator,
+//          ModuleWasmObjectGenerator,
+//          ImportObjectGenerator,
+//          InstanceWasmObjectGenerator,
+//          GlobalWasmObjectCallGenerator,
+//          TableWasmObjectCallGenerator,
+//          MemoryWasmObjectCallGenerator,
+//          ModuleWasmObjectCallGenerator,
+//          InstanceWasmObjectCallGenerator,
+//          WasmPropertyAssignmentGenerator,
+//          WasmPropertyRemovalGenerator,
+//          WasmPropertyRetrievalGenerator,
+        
     ]
     
     /// Generates random code at the current position.
@@ -360,6 +402,11 @@ public class ProgramBuilder {
     }
     
     @discardableResult
+    public func loadNumber(_ value: Int) -> Variable {
+        return perform(LoadNumber(value: value)).output
+    }
+    
+    @discardableResult
     public func loadFloat(_ value: Double) -> Variable {
         return perform(LoadFloat(value: value)).output
     }
@@ -368,6 +415,7 @@ public class ProgramBuilder {
     public func loadString(_ value: String) -> Variable {
         return perform(LoadString(value: value)).output
     }
+    
     
     @discardableResult
     public func loadBool(_ value: Bool) -> Variable {
@@ -389,6 +437,11 @@ public class ProgramBuilder {
         return perform(CreateObject(propertyNames: Array(initialProperties.keys)), withInputs: Array(initialProperties.values)).output
     }
     
+    @discardableResult
+    public func createObjectWithValue(with initialProperties: [String: String]) -> Variable {
+        return perform(CreateObjectWithValue(propertyNames: Array(initialProperties.keys), propertyValues: Array(initialProperties.values)), withInputs:[]).output
+    }
+
     @discardableResult
     public func createArray(with initialValues: [Variable]) -> Variable {
         return perform(CreateArray(numInitialValues: initialValues.count), withInputs: initialValues).output
@@ -544,6 +597,7 @@ public class ProgramBuilder {
         body()
     }
     
+
     public func beginElse(_ body: () -> Void) {
         perform(BeginElse())
         body()
@@ -626,13 +680,13 @@ public class ProgramBuilder {
     }
     
     
-    
+    // except environment
     /// Returns a random variable satisfying the given constraints or nil if none is found.
     private func randVarInternal(_ selector: ((Variable) -> Bool)? = nil) -> Variable? {
         var candidates = [Variable]()
         
         // Prefer inner scopes
-        withProbability(0.75) {
+        withProbability(0.5) {
             candidates = chooseBiased(from: scopeAnalyzer.scopes, factor: 1.25)
             if let sel = selector {
                 candidates = candidates.filter(sel)
@@ -685,6 +739,8 @@ public class ProgramBuilder {
         switch operation {
         case let op as LoadInteger:
             seenIntegers.insert(op.value)
+        case let op as LoadNumber:
+            seenIntegers.insert(op.value)
         case let op as LoadProperty:
             seenPropertyNames.insert(op.propertyName)
         case let op as StoreProperty:
@@ -703,4 +759,55 @@ public class ProgramBuilder {
             break
         }
     }
+    
+    @discardableResult
+    public func alter(_ input: Variable , _ typeName: String) -> Variable {
+        return perform(Alter(typeName: typeName), withInputs: [input]).output
+    }
+    
+    @discardableResult
+    public func const(_ input: Variable) -> Variable {
+        return perform(Const(), withInputs: [input]).output
+    }
+    
+
+    
+    @discardableResult
+    public func generalWasmObject(_ t: Type) -> Variable {
+        let GeneralWasmObject = randVar(ofGuaranteedType: t)
+        if GeneralWasmObject == nil {
+            switch t {
+            case .GlobalWasmObject:
+                GlobalWasmObjectGenerator(self)
+            case .TableWasmObject:
+                TableWasmObjectGenerator(self)
+            case .MemoryWasmObject:
+                MemoryWasmObjectGenerator(self)
+            case .ModuleWasmObject:
+                ModuleWasmObjectGenerator(self)
+            case .ImportObject:
+                ImportObjectGenerator(self)
+            case .InstanceWasmObject:
+                InstanceWasmObjectGenerator(self)
+            case .FuncRefObject:
+                SpecialWasmObjectCallGenerator(self, .TableWasmObject, "get", [loadInt(Int.random(in: 0...42))])
+            case .GlobalDescriptorFloat:
+                GlobalDescriptorFloatGenerator(self)
+            case .GlobalDescriptorInt:
+                GlobalDescriptorIntGenerator(self)
+            case .TableDescriptor:
+                TableDescriptor(self)
+            case .MemoryDescriptor:
+                MemoryDescriptor(self)
+            case .jsTypedArray("Uint8Array"):
+                BufferSourceGenerator(self)
+            default:
+                fatalError("Object Type is not supported")
+            }
+            return generalWasmObject(t)
+        }
+        
+        return GeneralWasmObject!
+    }
+    
 }

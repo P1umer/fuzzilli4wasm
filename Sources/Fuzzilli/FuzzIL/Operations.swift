@@ -91,6 +91,16 @@ class LoadInteger: Operation, TypeIdentifiable {
     }
 }
 
+class LoadNumber: Operation, TypeIdentifiable {
+    static let typeId = 65
+    let value: Int
+    
+    init(value: Int) {
+        self.value = value
+        super.init(numInputs: 0, numOutputs: 1, attributes: [.isPrimitive, .isParametric, .isLiteral])
+    }
+}
+
 class LoadFloat: Operation, TypeIdentifiable {
     static let typeId = 2
     let value: Double
@@ -726,6 +736,22 @@ class EnumerateBuiltins: InternalOperation, TypeIdentifiable {
     }
 }
 
+class CreateObjectWithValue: Operation, TypeIdentifiable {
+    static let typeId = 64
+    let propertyNames: [String]
+    let propertyValues: [String]
+
+    init(propertyNames: [String], propertyValues: [String]) {
+        self.propertyNames = propertyNames
+        self.propertyValues = propertyValues
+        var flags: Operation.Attributes = [.isVarargs, .isLiteral]
+        if propertyNames.count > 0 {
+            flags.insert(.isParametric)
+        }
+        super.init(numInputs: 0, numOutputs: 1, attributes: flags)
+    }
+}
+
 // Expose the name of an operation as instance and class variable
 extension Operation {
     var name: String {
@@ -766,3 +792,25 @@ func Matches(_ op1: Operation, _ op2: Operation) -> Bool {
         fatalError()
     }
 }
+
+/// This change the target object's type
+class Alter: Operation, TypeIdentifiable {
+    static let typeId = 64
+    let typeName: String
+    init(typeName: String) {
+        self.typeName = typeName
+        super.init(numInputs: 1, numOutputs: 1)
+    }
+}
+
+/// This change the target object's type
+class Const: Operation, TypeIdentifiable {
+    static let typeId = 65
+    init() {
+        super.init(numInputs: 1, numOutputs: 1)
+    }
+}
+
+
+
+

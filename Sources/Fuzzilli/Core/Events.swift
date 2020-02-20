@@ -126,6 +126,9 @@ public class Events {
     /// Signals that a worker has disconnected.
     public let WorkerDisconnected: Event<UUID>
     
+    /// Signals that buffersource cache need to refresh
+    public let BufferSourceCacheRefresh: Event<Void>
+    
     init(_ queue: OperationQueue) {
         self.Initialized = Event(queue)
         self.Shutdown = Event(queue)
@@ -142,5 +145,6 @@ public class Events {
         self.PostExecute = Event(queue)
         self.WorkerConnected = Event(queue)
         self.WorkerDisconnected = Event(queue)
+        self.BufferSourceCacheRefresh = Event(queue)
     }
 }

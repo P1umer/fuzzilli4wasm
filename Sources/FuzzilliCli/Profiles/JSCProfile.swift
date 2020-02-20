@@ -65,8 +65,9 @@ let jscProfile = Profile(
     crashTests: ["fuzzilli('FUZZILLI_CRASH', 0)", "fuzzilli('FUZZILLI_CRASH', 1)", "fuzzilli('FUZZILLI_CRASH', 2)"],
 
     additionalCodeGenerators: WeightedList<CodeGenerator>([
-        (ForceDFGCompilationGenerator, 5),
-        (ForceFTLCompilationGenerator, 5),
+        (ForceDFGCompilationGenerator,    5),
+        (ForceFTLCompilationGenerator,    5),
+
     ]),
         
     additionalBuiltins: [
