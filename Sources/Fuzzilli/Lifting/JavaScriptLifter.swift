@@ -74,6 +74,8 @@ public class JavaScriptLifter: ComponentBase, Lifter {
                 switch analyzer.definition(of: instr.input(idx)).operation {
                 case let op as LoadInteger:
                     return op.value
+                case let op as LoadNumber:
+                    return op.value
                 case let op as LoadFloat:
                     return op.value
                 case let op as LoadString:
@@ -95,6 +97,9 @@ public class JavaScriptLifter: ComponentBase, Lifter {
                 break
                 
             case let op as LoadInteger:
+                output = NumberLiteral.new(String(op.value))
+            
+            case let op as LoadNumber:
                 output = NumberLiteral.new(String(op.value))
                 
             case let op as LoadFloat:
@@ -261,6 +266,8 @@ public class JavaScriptLifter: ComponentBase, Lifter {
                 output = BinaryExpression.new() <> input(0) <> " " <> op.op.token <> " " <> input(1)
                 
             case is Phi:
+                w.emit("\(varDecl) \(instr.output) = \(input(0));")
+            case is Alter:
                 w.emit("\(varDecl) \(instr.output) = \(input(0));")
                 
             case is Copy:
@@ -447,7 +454,7 @@ public class JavaScriptLifter: ComponentBase, Lifter {
         }
         
         w.emitBlock(suffix)
-
+        //print(w.code)
         return w.code
     }
 }

@@ -33,15 +33,34 @@ public class FuzzerCore: ComponentBase {
     /// Prefix "template" to use. Every program taken from the corpus
     /// is prefixed with some code generated from this before mutation.
     private let programPrefixGenerators: [CodeGenerator] = [
-        IntegerLiteralGenerator,
-        StringLiteralGenerator,
-        BuiltinGenerator,
-        FloatArrayGenerator,
-        IntArrayGenerator,
-        ArrayLiteralGenerator,
-        ObjectLiteralGenerator,
-        ObjectLiteralGenerator,
-        PhiGenerator,
+//        IntegerLiteralGenerator,
+//        StringLiteralGenerator,
+//        BuiltinGenerator,
+//        FloatArrayGenerator,
+//        IntArrayGenerator,
+//        ArrayLiteralGenerator,
+//        ObjectLiteralGenerator,
+//        ObjectLiteralGenerator,
+//        PhiGenerator,
+//          BufferSourceGenerator,
+//          GlobalDescriptorIntGenerator,
+//          GlobalDescriptorIntGenerator,
+//          TableDescriptor,
+//          MemoryDescriptor,
+//          GlobalWasmObjectGenerator,
+//          TableWasmObjectGenerator,
+//          MemoryWasmObjectGenerator,
+//          ModuleWasmObjectGenerator,
+//          ImportObjectGenerator,
+//          InstanceWasmObjectGenerator,
+//          GlobalWasmObjectCallGenerator,
+//          TableWasmObjectCallGenerator,
+//          MemoryWasmObjectCallGenerator,
+//          ModuleWasmObjectCallGenerator,
+//          InstanceWasmObjectCallGenerator,
+//          WasmPropertyAssignmentGenerator,
+//          WasmPropertyRemovalGenerator,
+//          WasmPropertyRetrievalGenerator,
     ]
     
     // The number of consecutive mutations to apply to a sample.
@@ -150,9 +169,10 @@ public class FuzzerCore: ComponentBase {
                 logger.warning("Could not mutate sample, giving up. Sampe:\n\(fuzzer.lifter.lift(parent))")
                 program = parent
             }
-    
+            
             fuzzer.events.ProgramGenerated.dispatch(with: program)
             
+ 
             let execution = fuzzer.execute(program)
             
             switch execution.outcome {

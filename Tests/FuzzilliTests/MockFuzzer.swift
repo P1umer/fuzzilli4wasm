@@ -40,6 +40,8 @@ class MockEnvironment: ComponentBase, Environment {
     
     var interestingStrings: [String] = ["foo", "bar"]
     
+    var interestingSectionName: [String] = ["debug", ""]
+    
     
     var builtins: Set<String>
     

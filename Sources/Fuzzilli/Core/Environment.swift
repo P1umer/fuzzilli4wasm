@@ -23,6 +23,8 @@ public protocol Environment: Component {
     /// List of string values that might yield interesting behaviour or trigger edge cases in the target language.
     var interestingStrings: [String] { get }
     
+    /// List of sectionName
+    var interestingSectionName: [String] { get }
     
     /// List of all builtin objects in the target environment.
     var builtins: Set<String> { get }

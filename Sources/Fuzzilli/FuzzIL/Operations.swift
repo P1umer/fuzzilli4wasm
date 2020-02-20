@@ -91,6 +91,16 @@ class LoadInteger: Operation, TypeIdentifiable {
     }
 }
 
+class LoadNumber: Operation, TypeIdentifiable {
+    static let typeId = 65
+    let value: Int
+    
+    init(value: Int) {
+        self.value = value
+        super.init(numInputs: 0, numOutputs: 1, attributes: [.isPrimitive, .isParametric, .isLiteral])
+    }
+}
+
 class LoadFloat: Operation, TypeIdentifiable {
     static let typeId = 2
     let value: Double
@@ -766,3 +776,16 @@ func Matches(_ op1: Operation, _ op2: Operation) -> Bool {
         fatalError()
     }
 }
+
+/// This change the target object's type
+class Alter: Operation, TypeIdentifiable {
+    static let typeId = 64
+    let typeName: String
+    init(typeName: String) {
+        self.typeName = typeName
+        super.init(numInputs: 1, numOutputs: 1)
+    }
+}
+
+
+

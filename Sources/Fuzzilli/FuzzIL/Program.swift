@@ -26,7 +26,8 @@
 ///
 public class Program: Collection, Codable {
     /// A program is simply a collection of instructions.
-    private var instructions: [Instruction] = []
+    //  private var instructions: [Instruction] = []
+    var instructions: [Instruction] = []
     
     /// Constructs am empty program.
     public init() {}

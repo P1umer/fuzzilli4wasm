@@ -14,7 +14,9 @@
 
 public class JavaScriptEnvironment: ComponentBase, Environment {
     // Possible return values of the 'typeof' operator.
-    public static let jsTypeNames = ["undefined", "boolean", "number", "string", "symbol", "function", "object"]
+    public static let jsTypeNames = ["i32", "i64", "f32", "f64"]
+    
+    public static let sectionName = ["debug", "name", ""]
     
     // Integer values that are more likely to trigger edge-cases.
     public let interestingIntegers = [-9007199254740993, -9007199254740992, -9007199254740991,          // Smallest integer value that is still precisely representable by a double
@@ -39,6 +41,9 @@ public class JavaScriptEnvironment: ComponentBase, Environment {
 
     // TODO more?
     public let interestingStrings = jsTypeNames
+    
+    public let interestingSectionName = sectionName
+    
     
     public var intType = Type.integer
     public var floatType = Type.float
@@ -75,84 +80,125 @@ public class JavaScriptEnvironment: ComponentBase, Environment {
         registerObjectGroup(.jsStrings)
         registerObjectGroup(.jsPlainObjects)
         registerObjectGroup(.jsArrays)
-        registerObjectGroup(.jsFunctions)
-        registerObjectGroup(.jsSymbols)
-        registerObjectGroup(.jsMaps)
-        registerObjectGroup(.jsWeakMaps)
-        registerObjectGroup(.jsSets)
-        registerObjectGroup(.jsWeakSets)
-        registerObjectGroup(.jsArrayBuffers)
+//        registerObjectGroup(.jsFunctions)
+//        registerObjectGroup(.jsSymbols)
+//        registerObjectGroup(.jsMaps)
+//        registerObjectGroup(.jsWeakMaps)
+//        registerObjectGroup(.jsSets)
+//        registerObjectGroup(.jsWeakSets)
+//        registerObjectGroup(.jsArrayBuffers)
         for variant in ["Uint8Array", "Int8Array", "Uint16Array", "Int16Array", "Uint32Array", "Int32Array", "Float32Array", "Float64Array", "Uint8ClampedArray"] {
             registerObjectGroup(.jsTypedArrays(variant))
         }
-        registerObjectGroup(.jsDataViews)
+//        registerObjectGroup(.jsDataViews)
+//
+//        registerObjectGroup(.jsObjectConstructor)
+//        registerObjectGroup(.jsArrayConstructor)
+//        registerObjectGroup(.jsStringConstructor)
+//        registerObjectGroup(.jsSymbolConstructor)
+//        registerObjectGroup(.jsBooleanConstructor)
+//        registerObjectGroup(.jsNumberConstructor)
+//        registerObjectGroup(.jsMathObject)
+//        registerObjectGroup(.jsJSONObject)
+//        registerObjectGroup(.jsReflectObject)
+//
+//
+//        for group in additionalObjectGroups {
+//            registerObjectGroup(group)
+//        }
         
-        registerObjectGroup(.jsObjectConstructor)
-        registerObjectGroup(.jsArrayConstructor)
-        registerObjectGroup(.jsStringConstructor)
-        registerObjectGroup(.jsSymbolConstructor)
-        registerObjectGroup(.jsBooleanConstructor)
-        registerObjectGroup(.jsNumberConstructor)
-        registerObjectGroup(.jsMathObject)
-        registerObjectGroup(.jsJSONObject)
-        registerObjectGroup(.jsReflectObject)
+        // register wasm object group here
+        registerObjectGroup(.GlobalWasmObject)
+        registerObjectGroup(.TableWasmObject)
+        registerObjectGroup(.MemoryWasmObject)
+        registerObjectGroup(.ModuleWasmObject)
+        registerObjectGroup(.ImportObjectWasmObject)
+        registerObjectGroup(.InstanceWasmObject)
+        registerObjectGroup(.FuncRefWasmObject)
+        registerObjectGroup(.GlobalDescriptorInt)
+        registerObjectGroup(.GlobalDescriptorFloat)
+        registerObjectGroup(.TableDescriptor)
+        registerObjectGroup(.MemoryDescriptor)
         
-        for group in additionalObjectGroups {
-            registerObjectGroup(group)
-        }
         
         
         // Register builtins that should be available for fuzzing.
         // Here it is easy to selectively disable/enable some APIs for fuzzing by
         // just commenting out the corresponding lines.
         registerBuiltin("Object", ofType: .jsObjectConstructor)
-        registerBuiltin("Array", ofType: .jsArrayConstructor)
-        registerBuiltin("Function", ofType: .jsFunctionConstructor)
-        registerBuiltin("String", ofType: .jsStringConstructor)
-        registerBuiltin("Boolean", ofType: .jsBooleanConstructor)
-        registerBuiltin("Number", ofType: .jsNumberConstructor)
-        registerBuiltin("Symbol", ofType: .jsSymbolConstructor)
-        registerBuiltin("RegExp", ofType: .jsRegExpConstructor)
-        registerBuiltin("ArrayBuffer", ofType: .jsArrayBufferConstructor)
+//        registerBuiltin("Array", ofType: .jsArrayConstructor)
+//        registerBuiltin("Function", ofType: .jsFunctionConstructor)
+//        registerBuiltin("String", ofType: .jsStringConstructor)
+//        registerBuiltin("Boolean", ofType: .jsBooleanConstructor)
+//        registerBuiltin("Number", ofType: .jsNumberConstructor)
+//        registerBuiltin("Symbol", ofType: .jsSymbolConstructor)
+//        registerBuiltin("RegExp", ofType: .jsRegExpConstructor)
+//        registerBuiltin("ArrayBuffer", ofType: .jsArrayBufferConstructor)
         for variant in ["Uint8Array", "Int8Array", "Uint16Array", "Int16Array", "Uint32Array", "Int32Array", "Float32Array", "Float64Array", "Uint8ClampedArray"] {
             registerBuiltin(variant, ofType: .jsTypedArrayConstructor(variant))
         }
-        registerBuiltin("DataView", ofType: .jsDataViewConstructor)
-        registerBuiltin("Promise", ofType: .jsPromiseConstructor)
-        registerBuiltin("Proxy", ofType: .jsProxyConstructor)
-        registerBuiltin("Map", ofType: .jsMapConstructor)
-        registerBuiltin("WeakMap", ofType: .jsWeakMapConstructor)
-        registerBuiltin("Set", ofType: .jsSetConstructor)
-        registerBuiltin("WeakSet", ofType: .jsWeakSetConstructor)
-        registerBuiltin("Math", ofType: .jsMathObject)
-        registerBuiltin("JSON", ofType: .jsJSONObject)
-        registerBuiltin("Reflect", ofType: .jsReflectObject)
-        registerBuiltin("isNaN", ofType: .jsIsNaNFunction)
-        registerBuiltin("isFinite", ofType: .jsIsFiniteFunction)
-        //registerBuiltin("escape:", ofType: .jsEscapeFunction)
-        //registerBuiltin("unescape:", ofType: .jsUnescapeFunction)
-        //registerBuiltin("decodeURI:", ofType: .jsDecodeURIFunction)
-        //registerBuiltin("decodeURIComponent:", ofType: .jsDecodeURIComponentFunction)
-        //registerBuiltin("encodeURI:", ofType: .jsEncodeURIFunction)
-        //registerBuiltin("encodeURIComponent:", ofType: .jsEncodeURIComponentFunction)
-        registerBuiltin("eval", ofType: .jsEvalFunction)
-        registerBuiltin("parseInt", ofType: .jsParseIntFunction)
-        registerBuiltin("parseFloat", ofType: .jsParseFloatFunction)
-        registerBuiltin("undefined", ofType: .jsUndefined)
-        registerBuiltin("NaN", ofType: .jsNaN)
-        registerBuiltin("Infinity", ofType: .jsInfinity)
+//        registerBuiltin("DataView", ofType: .jsDataViewConstructor)
+//        registerBuiltin("Promise", ofType: .jsPromiseConstructor)
+//        registerBuiltin("Proxy", ofType: .jsProxyConstructor)
+//        registerBuiltin("Map", ofType: .jsMapConstructor)
+//        registerBuiltin("WeakMap", ofType: .jsWeakMapConstructor)
+//        registerBuiltin("Set", ofType: .jsSetConstructor)
+//        registerBuiltin("WeakSet", ofType: .jsWeakSetConstructor)
+//        registerBuiltin("Math", ofType: .jsMathObject)
+//        registerBuiltin("JSON", ofType: .jsJSONObject)
+//        registerBuiltin("Reflect", ofType: .jsReflectObject)
+//        registerBuiltin("isNaN", ofType: .jsIsNaNFunction)
+//        registerBuiltin("isFinite", ofType: .jsIsFiniteFunction)
+//        registerBuiltin("escape:", ofType: .jsEscapeFunction)
+//        registerBuiltin("unescape:", ofType: .jsUnescapeFunction)
+//        registerBuiltin("decodeURI:", ofType: .jsDecodeURIFunction)
+//        registerBuiltin("decodeURIComponent:", ofType: .jsDecodeURIComponentFunction)
+//        registerBuiltin("encodeURI:", ofType: .jsEncodeURIFunction)
+//        registerBuiltin("encodeURIComponent:", ofType: .jsEncodeURIComponentFunction)
+//        registerBuiltin("eval", ofType: .jsEvalFunction)
+//        registerBuiltin("parseInt", ofType: .jsParseIntFunction)
+//        registerBuiltin("parseFloat", ofType: .jsParseFloatFunction)
+//        registerBuiltin("undefined", ofType: .jsUndefined)
+//        registerBuiltin("NaN", ofType: .jsNaN)
+//        registerBuiltin("Infinity", ofType: .jsInfinity)
+//
+//        // Register pseudo builtins
+//        registerBuiltin("this", ofType: .object())
+//        registerBuiltin("arguments", ofType: .object())
+//
+//        for (builtin, type) in additionalBuiltins {
+//            registerBuiltin(builtin, ofType: type)
+//        }
         
-        // Register pseudo builtins
-        registerBuiltin("this", ofType: .object())
-        registerBuiltin("arguments", ofType: .object())
+        registerBuiltin("WebAssembly.Global",   ofType: .GlobalWasmConstructor)
+        registerBuiltin("WebAssembly.Table",    ofType: .TableWasmConstructor)
+        registerBuiltin("WebAssembly.Memory",   ofType: .MemoryWasmConstructor)
+        registerBuiltin("WebAssembly.Module",   ofType: .ModuleWasmConstructor)
+        registerBuiltin("WebAssembly.Instance", ofType: .InstanceWasmConstructor)
         
-        for (builtin, type) in additionalBuiltins {
-            registerBuiltin(builtin, ofType: type)
-        }
+        // register for alter operation
+        registerBuiltin("ImportObject", ofType: .ImportObject)
+        registerBuiltin("FuncRefObject", ofType: .FuncRefObject)
         
-        customPropertyNames = ["a", "b", "c", "d", "e"]
+        
+        // register some descriptor
+        registerBuiltin("GlobalDescriptorFloat",  ofType: .GlobalDescriptorFloat)
+        registerBuiltin("GlobalDescriptorInt",    ofType: .GlobalDescriptorInt)
+        registerBuiltin("TableDescriptor",        ofType: .TableDescriptor)
+        registerBuiltin("MemoryDescriptor",       ofType: .MemoryDescriptor)
+        
+        
+        
+        //register some function :(
+        registerBuiltin("WebAssembly.Module.customSections", ofType: .wasmModuleCustomSectionsFunction)
+        registerBuiltin("WebAssembly.Module.exports",        ofType: .wasmModuleExportsFunction)
+        registerBuiltin("WebAssembly.Module.imports",        ofType: .wasmModuleImportsFunction)
+        
+     
+        
+        customPropertyNames = []//["a", "b", "c", "d", "e"]
         methodNames.formUnion(customPropertyNames)
-        writePropertyNames = customPropertyNames.union(["toString", "valueOf", "__proto__", "constructor", "length"])
+        writePropertyNames = customPropertyNames.union(["__proto__"])//.union(["toString", "valueOf", "__proto__", "constructor", "length"])
         readPropertyNames.formUnion(writePropertyNames.union(customPropertyNames))
     }
     
@@ -161,6 +207,7 @@ public class JavaScriptEnvironment: ComponentBase, Environment {
         assert(!writePropertyNames.isEmpty)
         assert(!methodNames.isEmpty)
         
+        //jsenv
         // Log detailed information about the environment here so users are aware of it and can modify things if they like.
         logger.info("initialized static JS environment model")
         logger.info("Have \(builtins.count) available builtins: \(builtins)")
@@ -171,7 +218,7 @@ public class JavaScriptEnvironment: ComponentBase, Environment {
     }
     
     public func registerObjectGroup(_ group: ObjectGroup) {
-        precondition(groups[group.name] == nil)
+        precondition(groups[group.name] == nil)//if nil continue;
         groups[group.name] = group
         methodNames.formUnion(group.methods.keys)
         readPropertyNames.formUnion(group.properties.keys)
@@ -192,6 +239,7 @@ public class JavaScriptEnvironment: ComponentBase, Environment {
         }
     }
         
+    //return type of basetype.propertyName
     public func type(ofProperty propertyName: String, on baseType: Type) -> Type {
         if let groupName = baseType.group {
             if let group = groups[groupName] {
@@ -207,6 +255,7 @@ public class JavaScriptEnvironment: ComponentBase, Environment {
         return .unknown
     }
     
+    // return signature of baseType.methodName
     public func signature(ofMethod methodName: String, on baseType: Type) -> FunctionSignature {
         if let groupName = baseType.group {
             if let group = groups[groupName] {
@@ -252,6 +301,8 @@ public struct ObjectGroup {
 // To help with that, the ObjectGroup constructor asserts that the type information is consistent between
 // instance type and the ObjectGroup.
 public extension Type {
+    
+    /// add some type impl
     /// Type of a string in JavaScript.
     /// A JS string is both a string and an object on which methods can be called.
     static let jsString = Type.string + Type.object(ofGroup: "String", withProperties: ["__proto__", "constructor", "length"], withMethods: ["charAt", "charCodeAt", "codePointAt", "concat", "includes", "endsWith", "indexOf", "lastIndexOf", "padEnd", "padStart", "repeat", "replace", "slice", "split", "startsWith", "substring", "trim"])
@@ -397,6 +448,66 @@ public extension Type {
     
     /// Type of the JavaScript Infinity value.
     static let jsInfinity = Type.float
+    
+    
+    /// Type of Javascript Wasm Global object Constructor
+    static let GlobalWasmConstructor = Type.constructor([.object(), .float] => .GlobalWasmObject)
+    
+    /// Type of Javascript Wasm Table object Constructor
+    static let TableWasmConstructor = Type.constructor([.object()] => .TableWasmObject)
+    
+    /// Type of Javascript Wasm Memory object Constructor
+    static let MemoryWasmConstructor = Type.constructor([.object()] => .MemoryWasmObject)
+    
+    /// Type of Javascript Wasm Module object Constructor
+    static let ModuleWasmConstructor = Type.constructor([.jsTypedArray("Uint8Array")] => .ModuleWasmObject)
+    
+    /// Type of Javascript Wasm Module Instance Constructor
+    static let InstanceWasmConstructor = Type.constructor([.ModuleWasmObject, .ImportObject] => .InstanceWasmObject)
+    
+    /// Type of Javascript importObject
+    static let ImportObject = Type.object(ofGroup: "ImportObject")
+    
+    /// Type of Javascript FuncRef
+    static let FuncRefObject = Type.object(ofGroup: "FuncRef")
+    
+    ///Type of Javascript GlobalDescriptorFloat
+    static let GlobalDescriptorFloat = Type.object(ofGroup: "GlobalDescriptorFloat")
+    
+    ///Type of Javascript GlobalDescriptorInt
+    static let GlobalDescriptorInt = Type.object(ofGroup: "GlobalDescriptorInt")
+    
+    ///Type of Javascript TableDescriptor
+    static let TableDescriptor = Type.object(ofGroup: "TableDescriptor")
+    
+    ///Type of Javascript TableDescriptor
+    static let MemoryDescriptor = Type.object(ofGroup: "MemoryDescriptor")
+    
+    /// Type of Javascript Wasm Global object
+    static let GlobalWasmObject = Type.object(ofGroup: "WebAssembly.Global", withProperties: ["value"], withMethods: ["toString", "valueOf"])
+    
+    /// Type of Javascript Wasm Table object
+    static let TableWasmObject = Type.object(ofGroup: "WebAssembly.Table", withProperties: ["length"], withMethods: ["get", "grow", "set"])
+    
+    /// Type of Javascript Wasm Memory object
+    static let MemoryWasmObject = Type.object(ofGroup: "WebAssembly.Memory", withProperties: ["buffer"], withMethods: ["grow"])
+    
+    /// Type of Javascript Wasm Module object
+    static let ModuleWasmObject = Type.object(ofGroup: "WebAssembly.Module", withProperties: [], withMethods: ["WebAssembly.Module.customSections", "WebAssembly.Module.exports", "WebAssembly.Module.imports"])
+    
+    /// Type of Javascript Wasm Instance object
+    static let InstanceWasmObject = Type.object(ofGroup: "WebAssembly.Instance", withProperties: ["exports.memory"], withMethods: ["exports.main"])
+    
+    /// Type of the JavaScript  WebAssembly.Module.customSections builtin function.
+    static let wasmModuleCustomSectionsFunction = Type.function([.ModuleWasmObject, .string] => .jsArray)
+    
+    /// Type of the JavaScript  WebAssembly.Module.exports builtin function.
+    static let wasmModuleExportsFunction = Type.function([.ModuleWasmObject] => .jsArray)
+    
+    ////// Type of the JavaScript  WebAssembly.Module.imports builtin function.
+    static let wasmModuleImportsFunction = Type.function([.ModuleWasmObject] => .jsArray)
+    
+    
 }
 
 // Type information for the object groups that we use to model the JavaScript runtime environment.
@@ -409,12 +520,12 @@ public extension ObjectGroup {
         name: "String",
         instanceType: .jsString,
         properties: [
-            "__proto__"   : .object(),
+            "__proto__"   : .object(),//return type
             "length"      : .integer,
             "constructor" : .function()
         ],
         methods: [
-            "charAt"      : [.integer] => .jsString,
+            "charAt"      : [.integer] => .jsString, //input type ==> output type
             "charCodeAt"  : [.integer] => .integer,
             "codePointAt" : [.integer] => .integer,
             "concat"      : [.anything...] => .jsString,
@@ -855,7 +966,8 @@ public extension ObjectGroup {
         ]
     )
     
-    /// ObjectGroup modelling the JavaScript Reflect builtin
+
+    
     static let jsReflectObject = ObjectGroup(
         name: "Reflect",
         instanceType: .jsReflectObject,
@@ -876,4 +988,106 @@ public extension ObjectGroup {
             "setPrototypeOf"           : [.object(), .object()] => .boolean,
         ]
     )
+    
+    static let GlobalWasmObject = ObjectGroup(
+        name: "WebAssembly.Global",
+        instanceType: .GlobalWasmObject,
+        properties: [
+            "value" : .number,
+        ],
+        methods: [
+            "toString"       : [] => .jsString,
+            "valueOf"        : [] => .number,
+        ]
+    )
+    
+    static let TableWasmObject = ObjectGroup(
+        name: "WebAssembly.Table",
+        instanceType: .TableWasmObject,
+        properties: [
+            "length" : .number,
+        ],
+        methods: [
+            "get"         : [.integer | .number ] => .FuncRefObject,
+            "grow"        : [.integer | .number ]  => .number,
+            "set"         : [.integer | .number, .FuncRefObject] => .unknown,
+        ]
+    )
+    
+    static let MemoryWasmObject = ObjectGroup(
+        name: "WebAssembly.Memory",
+        instanceType: .MemoryWasmObject,
+        properties: [
+            "buffer" : .jsArray,
+        ],
+        methods: [
+            "grow"        : [.integer | .number ]  => .number,
+        ]
+    )
+    
+    static let ModuleWasmObject = ObjectGroup(
+        name: "WebAssembly.Module",
+        instanceType: .ModuleWasmObject,
+        properties: [:],
+        methods: [
+            "WebAssembly.Module.customSections"  : [] => .jsArray,
+            "WebAssembly.Module.exports"         : [] => .jsArray,
+            "WebAssembly.Module.imports"         : [] => .jsArray,
+        ]
+    )
+    
+    static let InstanceWasmObject = ObjectGroup(
+        name: "WebAssembly.Instance",
+        instanceType: .InstanceWasmObject,
+        properties: [
+            "exports.memory" : .MemoryWasmObject
+        ],
+        methods: [
+            "exports.main"   : [] => .undefined,
+        ]
+    )
+    
+    static let ImportObjectWasmObject = ObjectGroup(
+        name: "ImportObject",
+        instanceType: .ImportObject,
+        properties: [:],
+        methods: [:]
+    )
+    
+    static let FuncRefWasmObject = ObjectGroup(
+        name: "FuncRef",
+        instanceType: .FuncRefObject,
+        properties: [:],
+        methods: [:]
+    )
+    
+    static let GlobalDescriptorFloat = ObjectGroup(
+        name: "GlobalDescriptorFloat",
+        instanceType: .GlobalDescriptorFloat,
+        properties: [:],
+        methods: [:]
+    )
+    
+    static let GlobalDescriptorInt = ObjectGroup(
+        name: "GlobalDescriptorInt",
+        instanceType: .GlobalDescriptorInt,
+        properties: [:],
+        methods: [:]
+    )
+    
+    static let TableDescriptor = ObjectGroup(
+        name: "TableDescriptor",
+        instanceType: .TableDescriptor,
+        properties: [:],
+        methods: [:]
+    )
+    
+    static let MemoryDescriptor = ObjectGroup(
+        name: "MemoryDescriptor",
+        instanceType: .MemoryDescriptor,
+        properties: [:],
+        methods: [:]
+    )
+    
+
 }

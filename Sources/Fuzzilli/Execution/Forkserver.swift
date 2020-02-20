@@ -74,6 +74,7 @@ public class Forkserver: ComponentBase, ScriptRunner {
         let output = String(data: Data(bytes: result.output, count: result.output_size), encoding: .utf8)!
         free(result.output)
         
+
         return Execution(pid: Int(result.pid),
                          outcome: ExecutionOutcome.fromExitStatus(result.status),
                          termsig: Int(WTERMSIG(result.status)),
