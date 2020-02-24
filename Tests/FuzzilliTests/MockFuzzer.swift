@@ -74,6 +74,10 @@ class MockEnvironment: ComponentBase, Environment {
         return builtinTypes[builtinName] ?? .unknown
     }
     
+    func type(forTypeName typeName: String) -> Type {
+        return extraTypes[typeName] ?? .unknown
+    }
+    
     func type(ofProperty propertyName: String, on baseType: Type) -> Type {
         if let groupName = baseType.group {
             if let groupProperties = propertiesByGroup[groupName] {
@@ -97,11 +101,13 @@ class MockEnvironment: ComponentBase, Environment {
     }
     
     let builtinTypes: [String: Type]
+    let extraTypes: [String: Type]
     let propertiesByGroup: [String: [String: Type]]
     let methodsByGroup: [String: [String: FunctionSignature]]
     
-    init(builtins builtinTypes: [String: Type], propertiesByGroup: [String: [String: Type]] = [:], methodsByGroup: [String: [String: FunctionSignature]] = [:]) {
+    init(builtins builtinTypes: [String: Type], propertiesByGroup: [String: [String: Type]] = [:], methodsByGroup: [String: [String: FunctionSignature]] = [:], extraTypes: [String: Type] = [:]) {
         self.builtinTypes = builtinTypes
+        self.extraTypes = extraTypes
         // Builtins must not be empty for now
         self.builtins = builtinTypes.isEmpty ? Set(["Foo", "Bar"]) : Set(builtinTypes.keys)
         self.propertiesByGroup = propertiesByGroup

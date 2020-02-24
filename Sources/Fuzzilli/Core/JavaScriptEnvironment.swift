@@ -63,6 +63,7 @@ public class JavaScriptEnvironment: ComponentBase, Environment {
     public private(set) var customPropertyNames = Set<String>()
     
     private var builtinTypes: [String: Type] = [:]
+    private var extraTypes: [String: Type] = [:]
     private var groups: [String: ObjectGroup] = [:]
     
     public init(additionalBuiltins: [String: Type], additionalObjectGroups: [ObjectGroup]) {
@@ -176,25 +177,21 @@ public class JavaScriptEnvironment: ComponentBase, Environment {
         registerBuiltin("WebAssembly.Module",   ofType: .ModuleWasmConstructor)
         registerBuiltin("WebAssembly.Instance", ofType: .InstanceWasmConstructor)
         
-        // register for alter operation
-        registerBuiltin("ImportObject", ofType: .ImportObject)
-        registerBuiltin("FuncRefObject", ofType: .FuncRefObject)
-        
-        
-        // register some descriptor
-        registerBuiltin("GlobalDescriptorFloat",  ofType: .GlobalDescriptorFloat)
-        registerBuiltin("GlobalDescriptorInt",    ofType: .GlobalDescriptorInt)
-        registerBuiltin("TableDescriptor",        ofType: .TableDescriptor)
-        registerBuiltin("MemoryDescriptor",       ofType: .MemoryDescriptor)
-        
-        
-        
         //register some function :(
         registerBuiltin("WebAssembly.Module.customSections", ofType: .wasmModuleCustomSectionsFunction)
         registerBuiltin("WebAssembly.Module.exports",        ofType: .wasmModuleExportsFunction)
         registerBuiltin("WebAssembly.Module.imports",        ofType: .wasmModuleImportsFunction)
         
-     
+        // register for alter operation
+        registerExtraType("ImportObject", ofType: .ImportObject)
+        registerExtraType("FuncRefObject", ofType: .FuncRefObject)
+        
+        // register some descriptor
+        registerExtraType("GlobalDescriptorFloat",  ofType: .GlobalDescriptorFloat)
+        registerExtraType("GlobalDescriptorInt",    ofType: .GlobalDescriptorInt)
+        registerExtraType("TableDescriptor",        ofType: .TableDescriptor)
+        registerExtraType("MemoryDescriptor",       ofType: .MemoryDescriptor)
+        
         
         customPropertyNames = []//["a", "b", "c", "d", "e"]
         methodNames.formUnion(customPropertyNames)
@@ -230,11 +227,25 @@ public class JavaScriptEnvironment: ComponentBase, Environment {
         builtins.insert(name)
     }
     
+    public func registerExtraType(_ name: String, ofType type: Type) {
+        precondition(extraTypes[name] == nil)
+        extraTypes[name] = type
+    }
+    
     public func type(ofBuiltin builtinName: String) -> Type {
         if let type = builtinTypes[builtinName] {
             return type
         } else {
             logger.warning("Missing type for builtin \(builtinName)")
+            return .unknown
+        }
+    }
+    
+    public func type(forTypeName typeName: String) -> Type {
+        if let type = extraTypes[typeName] {
+            return type
+        } else {
+            logger.warning("Missing type for builtin \(typeName)")
             return .unknown
         }
     }

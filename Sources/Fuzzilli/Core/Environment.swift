@@ -68,6 +68,9 @@ public protocol Environment: Component {
     /// Retuns the type of the builtin with the given name.
     func type(ofBuiltin builtinName: String) -> Type
     
+    /// Retuns the type for the given type name.
+    func type(forTypeName typeName: String) -> Type
+    
     /// Returns the type of the property on the provided base object.
     func type(ofProperty propertyName: String, on baseType: Type) -> Type
     

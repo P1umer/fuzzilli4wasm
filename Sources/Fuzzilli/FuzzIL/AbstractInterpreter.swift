@@ -356,7 +356,7 @@ public struct AbstractInterpreter {
         
         //add the Alter opcode
         case let op as Alter:
-            set(instr.output, environment.type(ofBuiltin: op.typeName))
+            set(instr.output, environment.type(forTypeName: op.typeName))
             
         default:
             assert(!instr.hasOutput)
