@@ -181,6 +181,8 @@ public class JavaScriptEnvironment: ComponentBase, Environment {
         registerBuiltin("WebAssembly.Module.customSections", ofType: .wasmModuleCustomSectionsFunction)
         registerBuiltin("WebAssembly.Module.exports",        ofType: .wasmModuleExportsFunction)
         registerBuiltin("WebAssembly.Module.imports",        ofType: .wasmModuleImportsFunction)
+        registerBuiltin("WebAssembly.validate",              ofType: .wasmValidateFunction)
+        registerBuiltin("WebAssembly.compile",               ofType: .wasmCompileFunction)
         
         // register for alter operation
         registerExtraType("ImportObject", ofType: .ImportObject)
@@ -515,10 +517,14 @@ public extension Type {
     /// Type of the JavaScript  WebAssembly.Module.exports builtin function.
     static let wasmModuleExportsFunction = Type.function([.ModuleWasmObject] => .jsArray)
     
-    ////// Type of the JavaScript  WebAssembly.Module.imports builtin function.
+    /// Type of the JavaScript  WebAssembly.Module.imports builtin function.
     static let wasmModuleImportsFunction = Type.function([.ModuleWasmObject] => .jsArray)
     
+    /// Type of the JavaScript  WebAssembly.validate builtin function.
+    static let wasmValidateFunction = Type.function([.jsTypedArray("Uint8Array")] => .boolean)
     
+    /// Type of the JavaScript  WebAssembly.compile builtin function.
+    static let wasmCompileFunction = Type.function([.jsTypedArray("Uint8Array")] => .unknown)
 }
 
 // Type information for the object groups that we use to model the JavaScript runtime environment.

@@ -619,14 +619,10 @@ public func MemoryWasmObjectGenerator(_ b: ProgramBuilder) {
 
 public func ModuleWasmObjectGenerator(_ b: ProgramBuilder) {
 
-    var BufferSource = b.randVar(ofGuaranteedType: .jsTypedArray("Uint8Array"))
-    if BufferSource == nil{
-        BufferSourceGenerator(b)
-        BufferSource = b.randVar(ofGuaranteedType: .jsTypedArray("Uint8Array"))
-    }
+    let BufferSource = b.generalWasmObject(.jsTypedArray("Uint8Array"))
     
     let constructor = b.loadBuiltin("WebAssembly.Module")
-    b.construct(constructor, withArgs: [BufferSource!])
+    b.construct(constructor, withArgs: [BufferSource])
 }
 
 
@@ -703,6 +699,15 @@ public func InstanceWasmObjectCallGenerator(_ b: ProgramBuilder) {
     b.callMethod(methodName, on: InstanceWasmObject, withArgs: arguments)
 }
 
+public func WasmMethodCallGenerator(_ b: ProgramBuilder) {
+    let BufferSource = b.generalWasmObject(.jsTypedArray("Uint8Array"))
+    let function = b.loadBuiltin(chooseUniform(from: ["WebAssembly.validate", "WebAssembly.compile"]))
+    let arguments:[Variable]
+    
+    arguments = [BufferSource]
+    b.callFunction(function, withArgs: arguments)
+    
+}
 
 public func SpecialWasmObjectCallGenerator(_ b: ProgramBuilder, _ type: Type, _ methodName: String, _ arguments: [Variable]){
     

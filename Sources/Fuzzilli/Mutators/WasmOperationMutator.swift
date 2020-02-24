@@ -54,7 +54,7 @@ public class WasmOperationMutator: BaseInstructionMutator {
         // ADD
         case is CallMethod:
             let object = b.adopt(instr.input(0))
-            var objectType = b.type(of: object)
+            let objectType = b.type(of: object)
             let methodName = objectType.randomMethod() ?? b.genMethodName()
             let arguments:[Variable]
 
@@ -82,7 +82,7 @@ public class WasmOperationMutator: BaseInstructionMutator {
         case is CallFunction:
             if instr.numInputs >= 2  {
                 let object = b.adopt(instr.input(1))
-                var objectType = b.type(of: object)
+                let objectType = b.type(of: object)
 
                 switch objectType {
                 case .ModuleWasmObject:

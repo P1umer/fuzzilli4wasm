@@ -98,6 +98,7 @@ let defaultCodeGenerators = WeightedList<CodeGenerator>([
       (MemoryWasmObjectCallGenerator,      50),
       (ModuleWasmObjectCallGenerator,      50),
       (InstanceWasmObjectCallGenerator,    50),
+      (WasmMethodCallGenerator,            50),
       (WasmPropertyRetrievalGenerator,     50),
       (WasmPropertyRetrievalGenerator,     50),
       (WasmPropertyRemovalGenerator,       50),
