@@ -80,7 +80,7 @@ public class WasmOperationMutator: BaseInstructionMutator {
             
         // ADD
         case is CallFunction:
-            if instr.inouts.count >= 2  {
+            if instr.numInputs >= 2  {
                 let object = b.adopt(instr.input(1))
                 var objectType = b.type(of: object)
 
