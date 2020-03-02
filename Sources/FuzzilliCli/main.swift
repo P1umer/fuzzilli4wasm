@@ -50,6 +50,7 @@ Options:
     --networkWorker=host:port   : Run as worker and connect to the specified master instance.
     --noAbstractInterpretation  : Disable abstract interpretation of FuzzIL programs during fuzzing. See
                                   Configuration.swift for more details.
+    --bufferSourcesPath=path     : WASM files used to generate bufferSource.
 """)
     exit(0)
 }
@@ -65,6 +66,8 @@ if profile == nil {
     exit(-1)
 }
 
+
+
 let logLevelName = args["--logLevel"] ?? "info"
 let numIterations = args.int(for: "--numIterations") ?? -1
 let timeout = args.int(for: "--timeout") ?? 250
@@ -77,6 +80,12 @@ let storagePath = args["--storagePath"]
 let exportState = args.has("--exportState")
 let stateImportFile = args["--importState"]
 let disableAbstractInterpreter = args.has("--noAbstractInterpretation")
+let bufferSourcesPath = args["--bufferSourcesPath"] ?? nil
+
+if bufferSourcesPath == nil {
+    print("Please provide a DIC containing .WASM files ")
+    exit(-1)
+}
 
 let logLevelByName: [String: LogLevel] = ["verbose": .verbose, "info": .info, "warning": .warning, "error": .error, "fatal": .fatal]
 guard let logLevel = logLevelByName[logLevelName] else {
@@ -172,6 +181,8 @@ let corpus = Corpus(minSize: minCorpusSize, maxSize: maxCorpusSize, minMutations
 // Minimizer to minimize crashes and interesting programs.
 let minimizer = Minimizer()
 
+let bufferSource = BufferSource(samplePath: bufferSourcesPath!, maxCacheSize: 100)
+
 // Construct the fuzzer instance.
 let fuzzer = Fuzzer(configuration: config,
                     scriptRunner: runner,
@@ -181,7 +192,8 @@ let fuzzer = Fuzzer(configuration: config,
                     environment: environment,
                     lifter: lifter,
                     corpus: corpus,
-                    minimizer: minimizer)
+                    minimizer: minimizer,
+                    bufferSource: bufferSource)
 
 // Create a "UI". We do this now, before fuzzer initialization, so
 // we are able to print log messages generated during initialization.

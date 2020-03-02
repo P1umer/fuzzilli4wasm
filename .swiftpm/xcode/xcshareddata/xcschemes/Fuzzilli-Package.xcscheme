@@ -150,6 +150,10 @@
             isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
+            argument = "--bufferSourcesPath=/Users/p1umer/Desktop/wasm-samples/collected-wasm"
+            isEnabled = "YES">
+         </CommandLineArgument>
+         <CommandLineArgument
             argument = "/Users/p1umer/Desktop/webkit/FuzzBuild/Debug/bin/jsc"
             isEnabled = "YES">
          </CommandLineArgument>

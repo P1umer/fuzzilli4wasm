@@ -180,6 +180,8 @@ func makeMockFuzzer(runner maybeRunner: ScriptRunner? = nil, environment maybeEn
     // Minimizer to minimize crashes and interesting programs.
     let minimizer = Minimizer()
     
+    let buffersource = BufferSource(samplePath: "", maxCacheSize: 100)
+    
     // Construct the fuzzer instance.
     let fuzzer = Fuzzer(configuration: configuration,
                         scriptRunner: runner,
@@ -190,7 +192,8 @@ func makeMockFuzzer(runner maybeRunner: ScriptRunner? = nil, environment maybeEn
                         lifter: lifter,
                         corpus: corpus,
                         minimizer: minimizer,
-                        queue: OperationQueue.main)
+                        queue: OperationQueue.main,
+                        bufferSource: buffersource)
     
     fuzzer.initialize()
     return fuzzer
