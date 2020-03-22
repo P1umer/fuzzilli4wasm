@@ -17,6 +17,7 @@ public struct AbstractInterpreter {
     // States are kept in a stack to support conditional execution.
     private var ifStack: [VariableMap<Type>] = []
     private var stack: [VariableMap<Type>] = [VariableMap<Type>()]
+    private var ifList: [Int] = [] // 1 means single if; 2 means if-else
     
     // The currently active state.
     private var currentState: VariableMap<Type> {
@@ -45,12 +46,18 @@ public struct AbstractInterpreter {
             stack.append(merge(functionState, previousState))
         case is BeginIf:
             stack.append(currentState)
+            ifList.append(1)
         case is BeginElse:
             ifStack.append(stack.removeLast())
+            ifList[ifList.count-1] = 2
         case is EndIf:
-            let ifState = ifStack.removeLast()
-            let elseState = stack.removeLast()
-            stack.append(merge(ifState, elseState))
+            if ( ifList.removeLast() > 1) {
+                let ifState = ifStack.removeLast()
+                let elseState = stack.removeLast()
+                stack.append(merge(ifState, elseState))
+            } else {
+                stack.append(merge(stack.removeLast(), stack.removeLast()))
+            }
         case is BeginWhile:
             stack.append(currentState)
         case is EndWhile:
@@ -357,6 +364,9 @@ public struct AbstractInterpreter {
         //add the Alter opcode
         case let op as Alter:
             set(instr.output, environment.type(forTypeName: op.typeName))
+        
+        case is Const:
+            set(instr.output, type(of: instr.input(0)))
             
         default:
             assert(!instr.hasOutput)

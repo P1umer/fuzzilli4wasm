@@ -326,6 +326,7 @@ public class ProgramBuilder {
     
     // Code generators that can be used even if no variables exist yet.
     private let primitiveGenerators = [
+         CVE_2020_0768,
 //        IntegerLiteralGenerator,
 //        FloatLiteralGenerator,
 //        StringLiteralGenerator,
@@ -348,6 +349,7 @@ public class ProgramBuilder {
 //          WasmPropertyAssignmentGenerator,
 //          WasmPropertyRemovalGenerator,
 //          WasmPropertyRetrievalGenerator,
+        
     ]
     
     /// Generates random code at the current position.
@@ -590,6 +592,7 @@ public class ProgramBuilder {
         body()
     }
     
+
     public func beginElse(_ body: () -> Void) {
         perform(BeginElse())
         body()
@@ -756,6 +759,13 @@ public class ProgramBuilder {
     public func alter(_ input: Variable , _ typeName: String) -> Variable {
         return perform(Alter(typeName: typeName), withInputs: [input]).output
     }
+    
+    @discardableResult
+    public func const(_ input: Variable) -> Variable {
+        return perform(Const(), withInputs: [input]).output
+    }
+    
+
     
     @discardableResult
     public func generalWasmObject(_ t: Type) -> Variable {

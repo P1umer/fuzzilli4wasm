@@ -318,6 +318,7 @@ public struct Instruction: Codable {
              is CallFunction,
              is Construct,
              is Phi,
+             is Const,
              is Copy,
              is BeginWith,
              is EndWith,
@@ -443,6 +444,8 @@ public struct Instruction: Codable {
             self.operation = BinaryOperation(BinaryOperator(rawValue: try container.decode(String.self, forKey: .opData1))!)
         case Phi.typeId:
             self.operation = Phi()
+        case Const.typeId:
+            self.operation = Const()
         case Copy.typeId:
             self.operation = Copy()
         case Compare.typeId:

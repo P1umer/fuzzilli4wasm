@@ -787,5 +787,14 @@ class Alter: Operation, TypeIdentifiable {
     }
 }
 
+/// This change the target object's type
+class Const: Operation, TypeIdentifiable {
+    static let typeId = 65
+    init() {
+        super.init(numInputs: 1, numOutputs: 1)
+    }
+}
+
+
 
 

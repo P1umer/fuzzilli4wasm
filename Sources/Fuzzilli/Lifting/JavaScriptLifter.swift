@@ -267,11 +267,16 @@ public class JavaScriptLifter: ComponentBase, Lifter {
                 
             case is Phi:
                 w.emit("\(varDecl) \(instr.output) = \(input(0));")
+                
             case is Alter:
                 w.emit("\(varDecl) \(instr.output) = \(input(0));")
                 
             case is Copy:
                 w.emit("\(instr.input(0)) = \(input(1));")
+                
+            case is Const:
+                w.emit("const \(instr.output) = \(input(0));")
+            
                 
             case let op as Compare:
                 output = BinaryExpression.new() <> input(0) <> " " <> op.comparator.token <> " " <> input(1)
