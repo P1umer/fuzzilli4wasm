@@ -14,7 +14,7 @@
 
 public class JavaScriptEnvironment: ComponentBase, Environment {
     // Possible return values of the 'typeof' operator.
-    public static let jsTypeNames = ["i32", "i64", "f32", "f64"]
+    public static let jsTypeNames = ["undefined", "boolean", "number", "string", "symbol", "function", "object"]
     
     public static let sectionName = ["debug", "name", ""]
     
