@@ -510,55 +510,42 @@ public func BufferSourceGenerator(_ b: ProgramBuilder) {
 }
 
 public func GlobalDescriptorFloatGenerator(_ b: ProgramBuilder) {
-    
-    var initialProperties = [String: Variable]()
-    withEqualProbability({
-        initialProperties = ["value": b.loadString("f32"), "mutable": b.loadBool(Bool.random())]
-    }, {
-        initialProperties = ["value": b.loadString("f64"), "mutable": b.loadBool(Bool.random())]
-    })
-    let GlobalDescriptorFloat = b.createObject(with: initialProperties)
-    
+    var initialProperties = [String: String]()
+    initialProperties = ["value": Bool.random() ? "\"f32\"" : "\"f64\"", "mutable": Bool.random() ? "true": "false"]
+    let GlobalDescriptorFloat = b.createObjectWithValue(with: initialProperties)
     b.alter(GlobalDescriptorFloat, "GlobalDescriptorFloat")
-
 }
 
 public func GlobalDescriptorIntGenerator(_ b: ProgramBuilder) {
     
-    var initialProperties = [String: Variable]()
-    withEqualProbability({
-        initialProperties = ["value": b.loadString("i32"), "mutable": b.loadBool(Bool.random())]
-    }, {
-        initialProperties = ["value": b.loadString("i64"), "mutable": b.loadBool(Bool.random())]
-    })
-    let GlobalDescriptorInt = b.createObject(with: initialProperties)
-    
-    b.alter(GlobalDescriptorInt, "GlobalDescriptorInt")
-
+   var initialProperties = [String: String]()
+     initialProperties = ["value": Bool.random() ? "\"i32\"" : "\"i64\"", "mutable": Bool.random() ? "true": "false"]
+     let GlobalDescriptorInt = b.createObjectWithValue(with: initialProperties)
+     b.alter(GlobalDescriptorInt, "GlobalDescriptorInt")
 }
 
 public func TableDescriptor(_ b: ProgramBuilder) {
-    var initialProperties = [String: Variable]()
+    var initialProperties = [String: String]()
     withEqualProbability({
-       initialProperties = ["element": b.loadString("anyfunc"), "initial": b.loadNumber(Int.random(in: 0...42))]
+       initialProperties = ["element": "\"anyfunc\"", "initial": String(CInt.random(in: 0...42))]
     }, {
-       initialProperties = ["element": b.loadString("anyfunc"), "initial": b.loadNumber(Int.random(in: 0...42)), "maximum": b.loadNumber(Int.random(in: 43...99))]
+       initialProperties = ["element": "\"anyfunc\"", "initial": String(CInt.random(in: 0...42)), "maximum": String(CInt.random(in: 43...99))]
     })
 
-    let TableDescriptor = b.createObject(with: initialProperties)
+    let TableDescriptor = b.createObjectWithValue(with: initialProperties)
     b.alter(TableDescriptor, "TableDescriptor")
     
 }
 
 public func MemoryDescriptor(_ b: ProgramBuilder) {
-    var initialProperties = [String: Variable]()
+    var initialProperties = [String: String]()
     withEqualProbability({
-        initialProperties = ["initial": b.loadNumber(Int.random(in: 0...9))]
+        initialProperties = ["initial": String(Int.random(in: 0...9))]
     }, {
-        initialProperties = ["initial": b.loadNumber(Int.random(in: 0...9)), "maximum": b.loadNumber(Int.random(in: 9...999))]
+        initialProperties = ["initial": String(Int.random(in: 0...9)), "maximum": String(Int.random(in: 9...999))]
     })
     
-    let MemoryDescriptor = b.createObject(with: initialProperties)
+    let MemoryDescriptor = b.createObjectWithValue(with: initialProperties)
     b.alter(MemoryDescriptor, "MemoryDescriptor")
     
 }

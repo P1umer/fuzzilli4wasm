@@ -234,6 +234,9 @@ public struct AbstractInterpreter {
             }
             set(instr.output, environment.objectType + .object(withProperties: properties, withMethods: methods))
             
+        case is CreateObjectWithValue:
+            set(instr.output, environment.objectType)
+
         case let op as CreateObjectWithSpread:
             var properties: [String] = []
             var methods: [String] = []

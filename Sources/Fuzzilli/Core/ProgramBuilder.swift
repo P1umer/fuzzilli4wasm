@@ -438,6 +438,11 @@ public class ProgramBuilder {
     }
     
     @discardableResult
+    public func createObjectWithValue(with initialProperties: [String: String]) -> Variable {
+        return perform(CreateObjectWithValue(propertyNames: Array(initialProperties.keys), propertyValues: Array(initialProperties.values)), withInputs:[]).output
+    }
+
+    @discardableResult
     public func createArray(with initialValues: [Variable]) -> Variable {
         return perform(CreateArray(numInitialValues: initialValues.count), withInputs: initialValues).output
     }

@@ -736,6 +736,22 @@ class EnumerateBuiltins: InternalOperation, TypeIdentifiable {
     }
 }
 
+class CreateObjectWithValue: Operation, TypeIdentifiable {
+    static let typeId = 64
+    let propertyNames: [String]
+    let propertyValues: [String]
+
+    init(propertyNames: [String], propertyValues: [String]) {
+        self.propertyNames = propertyNames
+        self.propertyValues = propertyValues
+        var flags: Operation.Attributes = [.isVarargs, .isLiteral]
+        if propertyNames.count > 0 {
+            flags.insert(.isParametric)
+        }
+        super.init(numInputs: 0, numOutputs: 1, attributes: flags)
+    }
+}
+
 // Expose the name of an operation as instance and class variable
 extension Operation {
     var name: String {

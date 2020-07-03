@@ -131,6 +131,14 @@ public class JavaScriptLifter: ComponentBase, Lifter {
                     properties.append(propertyName + ":" + input(index))
                 }
                 output = ObjectLiteral.new("{" + properties.joined(separator: ",") + "}")
+
+            case let op as CreateObjectWithValue:
+                var properties = [String]()
+                for (index, propertyName) in op.propertyNames.enumerated() {
+                    properties.append(propertyName + ":" + op.propertyValues[index])
+                }
+                properties.sort()
+                output = ObjectLiteral.new("{" + properties.joined(separator: ",") + "}")
                 
             case is CreateArray:
                 let elems = instr.inputs.map({ expr(for: $0).text }).joined(separator: ",")
