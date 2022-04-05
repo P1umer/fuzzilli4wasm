@@ -46,13 +46,6 @@
 ///     .unknown
 ///          a pseudotype to indicate that the real type is unknown
 ///
-/// Flag types are base types which never occur alone, but only in combination with other type. The flag types are:
-///     .phi  : indicates that the variable is a Phi which can be reassigned
-///             this is simply a convenience feature which avoids the need to
-///             track Phi variables seperately.
-///     .list : used to indicate rest parameters in a function signature.
-///
-///
 /// Besides the base types, types can be combined to form new types:
 ///
 /// A type can be a union, essentially stating that it is one of multiple types. Union types occur in many scenarios, e.g.
@@ -108,7 +101,7 @@
 ///
 /// See also Tests/FuzzilliTests/TypeSystemTest.swift for examples of the various properties and features of this type system.
 ///
-public struct Type: Hashable, Codable {
+public struct Type: Hashable {
     
     //
     // Types and type constructors
@@ -120,6 +113,9 @@ public struct Type: Hashable, Codable {
     /// An integer type.
     public static let integer   = Type(definiteType: .integer)
     
+    /// A bigInt type.
+    public static let bigint    = Type(definiteType: .bigint)
+    
     /// A floating point number.
     public static let float     = Type(definiteType: .float)
     
@@ -128,6 +124,12 @@ public struct Type: Hashable, Codable {
     
     /// A boolean.
     public static let boolean   = Type(definiteType: .boolean)
+
+    /// A RegExp
+    public static let regexp    = Type(definiteType: .regexp)
+
+    /// Type one can iterate over
+    public static let iterable   = Type(definiteType: .iterable)        // TODO rename to .array?
     
     /// A value for which the type is not known.
     public static let unknown   = Type(definiteType: .unknown)
@@ -141,7 +143,7 @@ public struct Type: Hashable, Codable {
     /// A number: either an integer or a float.
     public static let number: Type = .integer | .float
     
-    /// A primitive: either a number, a string, or a boolean.
+    /// A primitive: either a number, a string, a boolean, or a bigint.
     public static let primitive: Type = .integer | .float | .string | .boolean
     
     /// Constructs an object type.
@@ -168,41 +170,16 @@ public struct Type: Hashable, Codable {
         return Type(definiteType: [.function, .constructor], ext: ext)
     }
     
-    /// A phi variable of the given type.
-    public static func phi(of subtype: Type) -> Type {
-        //return Type(definiteType: .phi) + subtype
-        return Type(definiteType: [.phi, subtype.definiteType], possibleType: [.phi, subtype.possibleType], ext: subtype.ext)
-    }
-    
-    public static func list(of subtype: Type) -> Type {
-        //return Type(definiteType: .list) + subtype
-        return Type(definiteType: [.list, subtype.definiteType], possibleType: [.list, subtype.possibleType], ext: subtype.ext)
-    }
-    
-    /// An optional parameter: either the given type or undefined.
-    public static func opt(_ subtype: Type) -> Type {
-        return subtype | .undefined
-    }
-    
     //
     // Type testing
     //
-    
-    public var isList: Bool {
-        return definiteType.contains(.list)
-    }
-    
-    public var isPhi: Bool {
-        return definiteType.contains(.phi)
-    }
-    
+
     // Whether it is a function or a constructor (or both).
     public var isCallable: Bool {
         return !definiteType.intersection([.function, .constructor]).isEmpty
     }
     
-    /// Whether this type is a union of multiple base types.
-    /// Note that it is not guaranteed that the result of the union operation XXX...
+    /// Whether this type is a union, i.e can be one of multiple types.
     public var isUnion: Bool {
         return possibleType.isStrictSuperset(of: definiteType)
     }
@@ -210,16 +187,6 @@ public struct Type: Hashable, Codable {
     /// Whether this type is a merge of multiple base types.
     public var isMerged: Bool {
         return definiteType.rawValue.nonzeroBitCount > 1
-    }
-    
-    /// Whether this type has any flag types contained in it.
-    public var hasFlags: Bool {
-        return isPhi || isList
-    }
-    
-    /// Returns this type with any flag type removed.
-    public var removingFlagTypes: Type {
-        return Type(definiteType: definiteType.subtracting([.phi, .list]), possibleType: possibleType.subtracting([.phi, .list]), ext: ext)
     }
     
     /// The base type of this type.
@@ -244,6 +211,17 @@ public struct Type: Hashable, Codable {
     public func MayBe(_ other: Type) -> Bool {
         return self.intersection(with: other) != .nothing
     }
+
+    func uniquified(with deduplicationSet: inout Set<TypeExtension>) -> Type {
+        guard let typeExtension = self.ext else { return self }
+        let (inserted, memberAfterInsert) = deduplicationSet.insert(typeExtension)
+
+        if inserted {
+            return self
+        } else {
+            return Type(definiteType: definiteType, possibleType: possibleType, ext: memberAfterInsert)
+        }
+    }
     
     /// Returns whether this type subsumes the other type.
     ///
@@ -261,8 +239,6 @@ public struct Type: Hashable, Codable {
     ///  - T1 | T2 >= T1 && T1 | T2 >= T2
     ///  - T1 >= T1 + T2 && T2 >= T1 + T2
     ///  - T1 >= T1 & T2 && T2 >= T1  & T2
-    ///  - T >= .phi(T)
-    ///  - .phi(T1) >= .phi(T2) iff T1 >= T2
     public func subsumes(_ other: Type) -> Bool {
         // Handle trivial cases
         if self == .anything || self == other || other == .nothing {
@@ -281,15 +257,12 @@ public struct Type: Hashable, Codable {
         // If we are a union (so our possible type is larger than the definite type)
         // then check that our possible type is larger than the other possible type.
         // However, there are some special rules to consider:
-        //  1. Flags are ignored on the other type.
-        //  2. If the other type is a merged type, it is enough if our possible
+        //  1. If the other type is a merged type, it is enough if our possible
         //    type is a superset of one of the merged base types.
         if isUnion {
-            let otherDefiniteTypeWithoutFlags = other.definiteType.subtracting(.flagTypes)
-            
             // Verify that either the other definite type is empty or that there is some overlap between
-            // our possible type and the other definite type (for 2. above)
-            guard otherDefiniteTypeWithoutFlags.isEmpty || !otherDefiniteTypeWithoutFlags.intersection(self.possibleType).isEmpty else {
+            // our possible type and the other definite type
+            guard other.definiteType.isEmpty || !other.definiteType.intersection(self.possibleType).isEmpty else {
                 return false
             }
             
@@ -398,7 +371,6 @@ public struct Type: Hashable, Codable {
     /// will result in r == .object(withProperties: ["a"]). Which is wider than it needs to be.
     /// Unioning also discards flag types.
     public func union(with other: Type) -> Type {
-        assert(!self.isList)
         
         // Form a union: the intersection of both definiteTypes and the union of both possibleTypes.
         // If the base types are the same, this will be a (cheap) Nop.
@@ -441,7 +413,7 @@ public struct Type: Hashable, Codable {
         }
 
         // Now intersect the possible type, ignoring flags as otherwise the intersection might just be flags, which is invalid.
-        var possibleType = self.possibleType.subtracting(.flagTypes).intersection(other.possibleType)
+        var possibleType = self.possibleType.intersection(other.possibleType)
         guard !possibleType.isEmpty else {
             return .nothing
         }
@@ -522,11 +494,6 @@ public struct Type: Hashable, Codable {
             return false
         }
         
-        // Merging flag types is not supported, mostly just because it doesn't make sense in practice.
-        guard !self.isPhi && !other.isPhi && !self.isList && !other.isList else {
-            return false
-        }
-        
         return true
     }
     
@@ -537,7 +504,7 @@ public struct Type: Hashable, Codable {
     ///
     /// Not all types can be merged, see canMerge.
     public func merging(with other: Type) -> Type {
-        precondition(canMerge(with: other))
+        assert(canMerge(with: other))
         
         let definiteType = self.definiteType.union(other.definiteType)
         let possibleType = self.possibleType.union(other.possibleType)
@@ -640,7 +607,7 @@ public struct Type: Hashable, Codable {
 }
 
 extension Type: CustomStringConvertible {
-    public var description: String {
+    public func format(abbreviate: Bool) -> String {
         // Test for well-known union types and .nothing
         if self == .anything {
             return ".anything"
@@ -651,14 +618,7 @@ extension Type: CustomStringConvertible {
         } else if self == .number {
             return ".number"
         }
-        
-        // Test for flag types
-        if isPhi {
-            return ".phi(of: \(removingFlagTypes.description))"
-        } else if isList {
-            return "\(removingFlagTypes.description)..."
-        }
-        
+
         if isUnion {
             // Unions with non-zero necessary types can only
             // occur if merged types are unioned.
@@ -674,7 +634,7 @@ extension Type: CustomStringConvertible {
             for b in BaseType.allBaseTypes {
                 if self.possibleType.contains(b) && !self.definiteType.contains(b) {
                     let subtype = Type(definiteType: b, ext: ext)
-                    parts.append(mergedTypes.reduce(subtype, +).description)
+                    parts.append(mergedTypes.reduce(subtype, +).format(abbreviate: abbreviate))
                 }
             }
             
@@ -689,6 +649,10 @@ extension Type: CustomStringConvertible {
             return ".undefined"
         case .integer:
             return ".integer"
+        case .bigint:
+            return ".bigint"
+        case .regexp:
+            return ".regexp"
         case .float:
             return ".float"
         case .string:
@@ -697,27 +661,39 @@ extension Type: CustomStringConvertible {
             return ".boolean"
         case .unknown:
             return ".unknown"
+        case .iterable:
+            return ".iterable"
         case .object:
             var params: [String] = []
             if let group = group {
                 params.append("ofGroup: \(group)")
             }
             if !properties.isEmpty {
-                params.append("withProperties: \(properties)")
+                if abbreviate && properties.count > 5 {
+                    let selection = properties.prefix(3).map { "\"\($0)\"" }
+                    params.append("withProperties: [\(selection.joined(separator: ", ")), ...]")
+                } else {
+                    params.append("withProperties: \(properties)")
+                }
             }
             if !methods.isEmpty {
-                params.append("withMethods: \(methods)")
+                if abbreviate && methods.count > 5 {
+                    let selection = methods.prefix(3).map { "\"\($0)\"" }
+                    params.append("withMethods: [\(selection.joined(separator: ", ")), ...]")
+                } else {
+                    params.append("withMethods: \(methods)")
+                }
             }
             return ".object(\(params.joined(separator: ", ")))"
         case .function:
             if let signature = functionSignature {
-                return ".function(\(signature))"
+                return ".function(\(signature.format(abbreviate: abbreviate)))"
             } else {
                 return ".function()"
             }
         case .constructor:
             if let signature = constructorSignature {
-                return ".constructor(\(signature))"
+                return ".constructor(\(signature.format(abbreviate: abbreviate)))"
             } else {
                 return ".constructor()"
             }
@@ -732,7 +708,7 @@ extension Type: CustomStringConvertible {
             for b in BaseType.allBaseTypes {
                 if self.definiteType.contains(b) {
                     let subtype = Type(definiteType: b, ext: ext)
-                    parts.append(subtype.description)
+                    parts.append(subtype.format(abbreviate: abbreviate))
                 }
             }
             return parts.joined(separator: " + ")
@@ -740,14 +716,24 @@ extension Type: CustomStringConvertible {
         
         fatalError("Unhandled type")
     }
+
+    public var description: String {
+        return format(abbreviate: false)
+    }
+
+    public var abbreviated: String {
+        return format(abbreviate: true)
+    }
 }
 
-struct BaseType: OptionSet, Hashable, Codable {
+struct BaseType: OptionSet, Hashable {
     let rawValue: UInt32
     
     // Base types
-    static let nothing     = BaseType(rawValue: 0)
+    static let nothing     = BaseType([])
     
+    // The compiler has these values hardcoded, in ProgramBuilder.ml.
+    // If these values are changed, make sure to update them there as well.
     static let undefined   = BaseType(rawValue: 1 << 0)
     static let integer     = BaseType(rawValue: 1 << 1)
     static let float       = BaseType(rawValue: 1 << 2)
@@ -757,20 +743,17 @@ struct BaseType: OptionSet, Hashable, Codable {
     static let function    = BaseType(rawValue: 1 << 6)
     static let constructor = BaseType(rawValue: 1 << 7)
     static let unknown     = BaseType(rawValue: 1 << 8)
-    
-    /// Additional "flag" types
-    static let phi         = BaseType(rawValue: 1 << 30)
-    static let list        = BaseType(rawValue: 1 << 31)
-    
-    static let flagTypes   = BaseType([.phi, .list])
+    static let bigint      = BaseType(rawValue: 1 << 9)
+    static let regexp      = BaseType(rawValue: 1 << 10)
+    static let iterable    = BaseType(rawValue: 1 << 11)
     
     /// The union of all types.
-    static let anything    = BaseType([.undefined, .integer, .float, .string, .boolean, .object, .unknown, .function, .constructor])
+    static let anything    = BaseType([.undefined, .integer, .float, .string, .boolean, .object, .unknown, .function, .constructor, .bigint, .regexp, .iterable])
     
-    static let allBaseTypes: [BaseType] = [.undefined, .integer, .float, .string, .boolean, .object, .unknown, .phi, .function, .constructor, .list]
+    static let allBaseTypes: [BaseType] = [.undefined, .integer, .float, .string, .boolean, .object, .unknown, .function, .constructor, .bigint, .regexp, .iterable]
 }
 
-class TypeExtension: Hashable, Codable {
+class TypeExtension: Hashable {
     // Properties and methods. Will only be populated if MayBe(.object()) is true.
     let properties: Set<String>
     let methods: Set<String>
@@ -806,17 +789,123 @@ class TypeExtension: Hashable, Codable {
     }
 }
 
-public struct FunctionSignature: Hashable, Codable, CustomStringConvertible {
-    public let inputTypes: [Type]
-    public let outputType: Type
-    
-    public var description: String {
-        let params = inputTypes.map({ $0.description }).joined(separator: ", ")
-        return "[\(params)] => \(outputType)"
+public enum Parameter: Equatable, Hashable {
+    case plain(Type)
+    case opt(Type)
+    case rest(Type)
+
+    fileprivate func format(abbreviate: Bool) -> String {
+        switch self {
+            case .plain(let t):
+                return ".plain(\(t.format(abbreviate: abbreviate)))"
+            case .opt(let t):
+                return ".opt(\(t.format(abbreviate: abbreviate)))"
+            case .rest(let t):
+               return ".rest(\(t.format(abbreviate: abbreviate)))"
+        }
     }
-    
-    public init(expects parameterTypes: [Type], returns returnType: Type) {
-        self.inputTypes = parameterTypes
+
+    var callerType: Type {
+        switch self {
+            case .plain(let t):
+                return t
+            case .opt(let t):
+                return t
+            case .rest(let t):
+               return t
+        }
+    }
+
+    var isRestParam: Bool {
+        switch self {
+            case .rest(_):
+                return true
+            default:
+                return false
+        }
+    }
+
+    var isOptional: Bool {
+        switch self {
+            case .opt(_):
+                return true
+            default:
+                return false
+        }
+    }
+
+    public typealias ProtobufType = Fuzzilli_Protobuf_Parameter
+
+    func asProtobuf(with typeCache: TypeCache?) -> ProtobufType {
+        switch self {
+            case .plain(let inputType):
+                return ProtobufType.with {
+                    $0.plainParameter = Fuzzilli_Protobuf_PlainParameter.with {
+                        $0.inputType = inputType.asProtobuf(with: typeCache)
+                    }
+                }
+            case .opt(let inputType):
+                return ProtobufType.with {
+                    $0.optionalParameter = Fuzzilli_Protobuf_OptionalParameter.with {
+                        $0.inputType = inputType.asProtobuf(with: typeCache)
+                    }
+                }
+            case .rest(let inputType):
+                return ProtobufType.with {
+                    $0.restParameter = Fuzzilli_Protobuf_RestParameter.with {
+                        $0.inputType = inputType.asProtobuf(with: typeCache)
+                    }
+                }
+        }
+    }
+
+    public func asProtobuf() -> ProtobufType {
+        return asProtobuf(with: nil)
+    }
+
+    init(from proto: ProtobufType, with typeCache: TypeCache?) throws {
+        switch proto.param {
+            case .plainParameter(let p):
+                self = .plain(try Type(from: p.inputType, with: typeCache))
+            case .optionalParameter(let p):
+                self = .opt(try Type(from: p.inputType, with: typeCache))
+            case .restParameter(let p):
+                self = .rest(try Type(from: p.inputType, with: typeCache))
+            default:
+              throw FuzzilliError.typeDecodingError("invalid parameter type")  
+        }
+    }
+
+    public init(from proto: ProtobufType) throws {
+        try self.init(from: proto, with: nil)
+    }
+}
+
+public struct FunctionSignature: Hashable, CustomStringConvertible {
+    public let parameters: [Parameter]
+    public let outputType: Type
+
+    public func format(abbreviate: Bool) -> String {
+        let params = parameters.map({ $0.format(abbreviate: abbreviate) }).joined(separator: ", ")
+        return "[\(params)] => \(outputType.format(abbreviate: abbreviate))"
+    }
+
+    public var description: String {
+        return format(abbreviate: false)
+    }
+
+    // Returns the number of innerOutputs that are generated from the function signature
+    public var numOutputVariablesInCallee: Int {
+        return parameters.count
+    }
+
+    // Returns type information of expected arguments to the function
+    public var callerTypes: [Type] {
+        return parameters.map({ $0.callerType })
+    }
+
+    public init(expects parameters: [Parameter], returns returnType: Type) {
+        self.parameters = parameters
         self.outputType = returnType
         assert(isValid())
     }
@@ -824,48 +913,139 @@ public struct FunctionSignature: Hashable, Codable, CustomStringConvertible {
     /// Constructs a function with N parameters of type .anything and producing .unknown.
     public init(withParameterCount numParameters: Int, hasRestParam: Bool = false) {
         self.outputType = .unknown
-        var inputTypes = Array<Type>(repeating: .anything, count: numParameters)
+        var parameters = Array<Parameter>(repeating: .plain(.anything), count: numParameters)
         if hasRestParam && numParameters > 0 {
-            inputTypes[inputTypes.endIndex - 1] = .anything...
+            parameters[parameters.endIndex - 1] = .rest(.anything)
         }
-        self.inputTypes = inputTypes
+        self.parameters = parameters
     }
     
     // The most generic function signature: varargs function returning .unknown
-    public static let forUnknownFunction = [.anything...] => .unknown
+    public static let forUnknownFunction = [.rest(.anything)] => .unknown
     
-    // TODO write test for this
-    func isOptional(_ n: Int) -> Bool {
-        assert(n <= inputTypes.count)
-        return inputTypes.suffix(from: n).allSatisfy({ $0.MayBe(.undefined) || $0.isList })
+    func hasVarargsParameter() -> Bool {
+        return parameters.last?.isRestParam ?? false
     }
 
     func isValid() -> Bool {
-        //var seenOptionals = false
-        for (i, p) in inputTypes.enumerated() {
-            // Must not have phis, .nothing, .unknown, and .undefined as parameters.
-            if p.isPhi || p == .nothing || p == .unknown || p == .undefined {
+        var sawOptionals = false
+        for (i, p) in parameters.enumerated() {
+            // Must not have .nothing, .unknown as parameters.
+            if p.callerType == .nothing || p.callerType == .unknown {
                 return false
             }
             
             // Must not have varargs except in the last position.
-            if p.isList {
-                return i == inputTypes.count - 1
+            if p.isRestParam {
+                return i == parameters.count - 1
+            }
+            
+            // Once we saw the first optional parameter (one that may be .undefined),
+            // we must not see any more non-optional parameters.
+            if p.isOptional {
+                sawOptionals = true
+            } else if sawOptionals {
+                return false
             }
         }
         return true
     }
 }
 
-/// The custom postfix operator ... is used to build type lists.
-postfix operator ...
-public postfix func ... (t: Type) -> Type {
-    assert(!t.isList && t != .nothing)
-    return .list(of: t)
-}
-
 /// The custom infix operator => is used to build up function signatures.
 infix operator =>: AdditionPrecedence
-public func => (params: [Type], returnType: Type) -> FunctionSignature {
-    return FunctionSignature(expects: params, returns: returnType)
+public func => (paramTypes: [Parameter], returnType: Type) -> FunctionSignature {
+    return FunctionSignature(expects: paramTypes, returns: returnType)
+}
+
+extension Type: ProtobufConvertible {
+    public typealias ProtobufType = Fuzzilli_Protobuf_Type
+
+    func asProtobuf(with typeCache: TypeCache?) -> ProtobufType {
+        return ProtobufType.with {
+            $0.definiteType = definiteType.rawValue
+            $0.possibleType = possibleType.rawValue
+
+            if let typeExtension = ext {
+                // See if we can use the cache
+                if let idx = typeCache?.get(typeExtension) {
+                    $0.extensionIdx = UInt32(idx)
+                    return
+                }
+
+                $0.extension.properties = Array(typeExtension.properties)
+                $0.extension.methods = Array(typeExtension.methods)
+
+                if let group = typeExtension.group {
+                    $0.extension.group = group
+                }
+                if let signature = typeExtension.signature {
+                    $0.extension.signature = signature.asProtobuf(with: typeCache)
+                }
+
+                typeCache?.add(typeExtension)
+            }
+        }
+    }
+
+    public func asProtobuf() -> ProtobufType {
+        return asProtobuf(with: nil)
+    }
+
+    init(from proto: ProtobufType, with typeCache: TypeCache?) throws {
+        var ext: TypeExtension? = nil
+
+        if let protoExt = proto.ext {
+            switch protoExt {
+            case .extensionIdx(let idx):
+                guard let cachedExt = typeCache?.get(Int(idx)) else {
+                    throw FuzzilliError.typeDecodingError("invalid type extension index or no type cache used")
+                }
+                ext = cachedExt
+            case .extension(let protoExtension):
+                ext = TypeExtension(group: !protoExtension.group.isEmpty ? protoExtension.group : nil,
+                                    properties: Set(protoExtension.properties),
+                                    methods: Set(protoExtension.methods),
+                                    signature: protoExtension.hasSignature ? try FunctionSignature(from: protoExtension.signature, with: typeCache) : nil)
+                typeCache?.add(ext!)
+            }
+        }
+
+        let definiteType = BaseType(rawValue: proto.definiteType)
+        let possibleType = BaseType(rawValue: proto.possibleType)
+        let allowedTypes = BaseType([BaseType.anything])
+        guard allowedTypes.contains(definiteType) && allowedTypes.contains(possibleType) else {
+            throw FuzzilliError.typeDecodingError("invalid base type")
+        }
+
+        self.init(definiteType: definiteType, possibleType: possibleType, ext: ext)
+    }
+
+    public init(from proto: ProtobufType) throws {
+        try self.init(from: proto, with: nil)
+    }
+}
+
+extension FunctionSignature: ProtobufConvertible {
+    typealias ProtobufType = Fuzzilli_Protobuf_FunctionSignature
+
+    func asProtobuf(with typeCache: TypeCache?) -> ProtobufType {
+        return ProtobufType.with {
+            $0.parameters = parameters.map({ $0.asProtobuf(with: typeCache) })
+            $0.outputType = outputType.asProtobuf(with: typeCache)
+        }
+    }
+
+    func asProtobuf() -> ProtobufType {
+        return asProtobuf(with: nil)
+    }
+
+    init(from proto: ProtobufType, with typeCache: TypeCache?) throws {
+        self.init(expects: try proto.parameters.map({ try Parameter(from: $0, with: typeCache) }),
+                  returns: try Type(from: proto.outputType, with: typeCache))
+    }
+
+    init(from proto: ProtobufType) throws {
+        try self.init(from: proto, with: nil)
+    }
 }

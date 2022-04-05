@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// TODO this should probably be a Collection, not a Sequence
 public struct VariableMap<Value>: Sequence {
     public typealias Element = (Variable, Value)
     
@@ -19,23 +20,25 @@ public struct VariableMap<Value>: Sequence {
     
     public init() {
         self.elements = []
+        // Reserve capacity for roughly as many elements as the average number of variables in generated Programs
+        elements.reserveCapacity(128)
     }
-    
-    private mutating func growIfNecessary(to newLen: Int) {
-        if newLen < elements.count {
-            return
-        }
-        for _ in 0..<newLen - elements.count {
-            elements.append(nil)
-        }
-    }
-    
-    private mutating func shrinkIfNecessary() {
-        while elements.count > 0 && elements.last! == nil {
-            elements.removeLast()
+
+    public init(_ elementsMap: [Int: Value]) {
+        self.init()
+        for (varNumber, value) in elementsMap {
+            self[Variable(number: varNumber)] = value
         }
     }
-    
+
+    init(_ elements: [Value?]) {
+        self.elements = elements
+    }
+
+    public var isEmpty: Bool {
+        return elements.isEmpty
+    }
+
     public subscript(variable: Variable) -> Value? {
         get {
             let index = variable.number
@@ -55,12 +58,20 @@ public struct VariableMap<Value>: Sequence {
     public func contains(_ variable: Variable) -> Bool {
         return elements.count > variable.number && elements[variable.number] != nil
     }
+
+    public func hasHoles() -> Bool {
+        return elements.contains(where: {$0 == nil})
+    }
     
-    public mutating func remove(_ variable: Variable) {
+    public mutating func removeValue(forKey variable: Variable) {
         if elements.count > variable.number {
             elements[variable.number] = nil
             shrinkIfNecessary()
         }
+    }
+    
+    public mutating func removeAll() {
+        elements = []
     }
     
     public func makeIterator() -> VariableMap<Value>.Iterator {
@@ -85,6 +96,21 @@ public struct VariableMap<Value>: Sequence {
                 }
             }
             return nil
+        }
+    }
+    
+    private mutating func growIfNecessary(to newLen: Int) {
+        if newLen < elements.count {
+            return
+        }
+        for _ in 0..<newLen - elements.count {
+            elements.append(nil)
+        }
+    }
+    
+    private mutating func shrinkIfNecessary() {
+        while elements.count > 0 && elements.last! == nil {
+            elements.removeLast()
         }
     }
 }

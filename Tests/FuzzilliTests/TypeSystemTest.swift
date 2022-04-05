@@ -62,8 +62,8 @@ class TypeSystemTests: XCTestCase {
         XCTAssert(.object(withMethods: ["m1"]) != .object())
         
         XCTAssert(.function() == .function())
-        XCTAssert(.function([.integer, .integer...] => .undefined) == .function([.integer, .integer...] => .undefined))
-        XCTAssert(.function([.integer, .integer...] => .undefined) != .function())
+        XCTAssert(.function([.plain(.integer), .rest(.integer)] => .undefined) == .function([.plain(.integer), .rest(.integer)] => .undefined))
+        XCTAssert(.function([.plain(.integer), .rest(.integer)] => .undefined) != .function())
         
         // Test equality properties for all types in the test suite
         for t1 in typeSuite {
@@ -434,8 +434,8 @@ class TypeSystemTests: XCTestCase {
     }
     
     func testCallableTypeSubsumption() {
-        let signature1 = [.integer, .string] => .unknown
-        let signature2 = [.boolean, .anything...] => .object()
+        let signature1 = [.plain(.integer), .plain(.string)] => .unknown
+        let signature2 = [.plain(.boolean), .rest(.anything)] => .object()
         
         // Repeat the below tests for functions, constructors, and function constructors (function and constructor at the same time)
         // We call something that is a function or a constructor (or both) a "callable".
@@ -466,29 +466,6 @@ class TypeSystemTests: XCTestCase {
             
             // ... But they can be unioned, and the union is still a callable
             XCTAssert(anyCallable >= callable1 | callable2)
-        }
-    }
-    
-    func testPhis() {
-        XCTAssert(.phi(of: .integer) == .phi(of: .phi(of: .integer)))
-        
-        for t1 in typeSuite {
-            guard !t1.isPhi && t1 != .nothing else { continue }
-            XCTAssert(Type.phi(of: t1).isPhi)
-            XCTAssert(.phi(of: .anything) >= .phi(of: t1), ".phi(of: .anything) >= .phi(of: \(t1))")
-            XCTAssert(t1 >= .phi(of: t1), "\(t1) >= .phi(of: \(t1))")
-            XCTAssert(.phi(of: t1) == .phi(of: .phi(of: t1)))
-            for t2 in typeSuite {
-                guard !t2.isPhi && t2 != .nothing else { continue }
-                if t1 >= t2 {
-                    XCTAssert(.phi(of: t1) >= .phi(of: t2), "\(t1) >= \(t2) implies .phi(of: \(t1)) >= .phi(of: \(t2))")
-                } else {
-                    XCTAssertFalse(.phi(of: t1) >= .phi(of: t2), "\(t1) !>= \(t2) implies .phi(of: \(t1)) !>= .phi(of: \(t2))")
-                }
-                
-                // Unions of phi's are still phis
-                XCTAssert((.phi(of: t1) | .phi(of: t2)).isPhi)
-            }
         }
     }
     
@@ -528,7 +505,7 @@ class TypeSystemTests: XCTestCase {
         let aObj = Type.object(ofGroup: "A", withProperties: ["bar"], withMethods: ["m2"])
         XCTAssertEqual(.object(ofGroup: "A"), aObj.generalize())
         
-        let f = Type.function([.anything, .anything] => .integer)
+        let f = Type.function([.plain(.anything), .plain(.anything)] => .integer)
         XCTAssertEqual(.function(), f.generalize())
         
         for t in typeSuite {
@@ -633,7 +610,7 @@ class TypeSystemTests: XCTestCase {
         let funcCtor = Type.function() + Type.constructor()
         XCTAssert(funcCtor & .function() == funcCtor)
         // on the other hand, the intersection of .function() and .function([.string] => .float) is also the latter (for the same reason)
-        let sig = [.string] => .float
+        let sig = [.plain(.string)] => .float
         XCTAssert(Type.function() & .function(sig) == .function(sig))
         // as such, the intersection of .function([.string] => .float) and .function() + .constructor() now becomes
         // .function([.string] => .float) + .constructor([.string] => .float)
@@ -715,32 +692,27 @@ class TypeSystemTests: XCTestCase {
                     XCTAssertFalse(t1.canMerge(with: t2))
                 }
                     
-                    // .nothing cannot be merged
+                // .nothing cannot be merged
                 else if t1 == .nothing || t2 == .nothing {
                     XCTAssertFalse(t1.canMerge(with: t2))
                 }
                     
-                    // .unknown cannot be merged
+                // .unknown cannot be merged
                 else if t1 == .unknown || t2 == .unknown {
                     XCTAssertFalse(t1.canMerge(with: t2))
                 }
                     
-                    // Callables with different signatures cannot be merged
+                // Callables with different signatures cannot be merged
                 else if t1.isCallable && t2.isCallable && t1.signature != nil && t2.signature != nil && t1.signature != t2.signature {
                     XCTAssertFalse(t1.canMerge(with: t2))
                 }
                     
-                    // Objects of different groups cannot be merged
+                // Objects of different groups cannot be merged
                 else if t1.group != nil && t2.group != nil && t1.group != t2.group {
                     XCTAssertFalse(t1.canMerge(with: t2))
                 }
                     
-                    // Phis and lists cannot be merged
-                else if t1.isPhi || t2.isPhi || t1.isList || t2.isList {
-                    XCTAssertFalse(t1.canMerge(with: t2))
-                }
-                    
-                    // Everything else can be merged
+                // Everything else can be merged
                 else {
                     XCTAssert(t1.canMerge(with: t2))
                     // Merging is symmetric
@@ -748,6 +720,23 @@ class TypeSystemTests: XCTestCase {
                 }
             }
         }
+    }
+    
+    func testSignatureTypes() {
+        let sig1 = [.plain(.anything), .plain(.string), .plain(.integer), .opt(.integer), .opt(.float)] => .undefined
+        XCTAssertFalse(sig1.parameters[0].isOptional)
+        XCTAssertFalse(sig1.parameters[1].isOptional)
+        XCTAssertFalse(sig1.parameters[2].isOptional)
+        XCTAssert(sig1.parameters[3].isOptional)
+        XCTAssert(sig1.parameters[4].isOptional)
+        
+        let sig2 = [.plain(.integer), .opt(.integer), .rest(.float)] => .undefined
+        XCTAssertFalse(sig2.parameters[0].isOptional)
+        XCTAssertFalse(sig2.parameters[0].isRestParam)
+        XCTAssert(sig2.parameters[1].isOptional)
+        XCTAssertFalse(sig2.parameters[1].isRestParam)
+        XCTAssertFalse(sig2.parameters[2].isOptional)
+        XCTAssert(sig2.parameters[2].isRestParam)
     }
     
     func testTypeDescriptions() {
@@ -758,6 +747,9 @@ class TypeSystemTests: XCTestCase {
         XCTAssertEqual(Type.string.description, ".string")
         XCTAssertEqual(Type.boolean.description, ".boolean")
         XCTAssertEqual(Type.unknown.description, ".unknown")
+        XCTAssertEqual(Type.bigint.description, ".bigint")
+        XCTAssertEqual(Type.regexp.description, ".regexp")
+        XCTAssertEqual(Type.iterable.description, ".iterable")
         
         // Test object types
         XCTAssertEqual(Type.object().description, ".object()")
@@ -776,16 +768,17 @@ class TypeSystemTests: XCTestCase {
         
         // Test function and constructor types
         XCTAssertEqual(Type.function().description, ".function()")
-        XCTAssertEqual(Type.function([.anything...] => .unknown).description, ".function([.anything...] => .unknown)")
-        XCTAssertEqual(Type.function([.integer, .boolean, .anything...] => .object()).description, ".function([.integer, .boolean, .anything...] => .object())")
+        XCTAssertEqual(Type.function([.rest(.anything)] => .unknown).description, ".function([.rest(.anything)] => .unknown)")
+        XCTAssertEqual(Type.function([.plain(.float), .opt(.integer)] => .object()).description, ".function([.plain(.float), .opt(.integer)] => .object())")
+        XCTAssertEqual(Type.function([.plain(.integer), .plain(.boolean), .rest(.anything)] => .object()).description, ".function([.plain(.integer), .plain(.boolean), .rest(.anything)] => .object())")
         
         XCTAssertEqual(Type.constructor().description, ".constructor()")
-        XCTAssertEqual(Type.constructor([.anything...] => .unknown).description, ".constructor([.anything...] => .unknown)")
-        XCTAssertEqual(Type.constructor([.integer, .boolean, .anything...] => .object()).description, ".constructor([.integer, .boolean, .anything...] => .object())")
+        XCTAssertEqual(Type.constructor([.rest(.anything)] => .unknown).description, ".constructor([.rest(.anything)] => .unknown)")
+        XCTAssertEqual(Type.constructor([.plain(.integer), .plain(.boolean), .rest(.anything)] => .object()).description, ".constructor([.plain(.integer), .plain(.boolean), .rest(.anything)] => .object())")
         
         XCTAssertEqual(Type.functionAndConstructor().description, ".function() + .constructor()")
-        XCTAssertEqual(Type.functionAndConstructor([.anything...] => .unknown).description, ".function([.anything...] => .unknown) + .constructor([.anything...] => .unknown)")
-        XCTAssertEqual(Type.functionAndConstructor([.integer, .boolean, .anything...] => .object()).description, ".function([.integer, .boolean, .anything...] => .object()) + .constructor([.integer, .boolean, .anything...] => .object())")
+        XCTAssertEqual(Type.functionAndConstructor([.rest(.anything)] => .unknown).description, ".function([.rest(.anything)] => .unknown) + .constructor([.rest(.anything)] => .unknown)")
+        XCTAssertEqual(Type.functionAndConstructor([.plain(.integer), .plain(.boolean), .rest(.anything)] => .object()).description, ".function([.plain(.integer), .plain(.boolean), .rest(.anything)] => .object()) + .constructor([.plain(.integer), .plain(.boolean), .rest(.anything)] => .object())")
         
         // Test other "well-known" types
         XCTAssertEqual(Type.nothing.description, ".nothing")
@@ -793,9 +786,6 @@ class TypeSystemTests: XCTestCase {
         
         XCTAssertEqual(Type.primitive.description, ".primitive")
         XCTAssertEqual(Type.number.description, ".number")
-        
-        XCTAssertEqual(Type.phi(of: .integer).description, ".phi(of: .integer)")
-        XCTAssertEqual(Type.phi(of: .anything).description, ".phi(of: .anything)")
         
         // Test union types
         let strOrInt = Type.integer | Type.string
@@ -805,7 +795,7 @@ class TypeSystemTests: XCTestCase {
         // Note: information about properties and methods is discarded when unioning with non-object types.
         XCTAssertEqual(strOrIntOrObj.description, ".integer | .string | .object()")
         
-        let objOrFunc = Type.object() | Type.function([.integer, .integer] => .integer)
+        let objOrFunc = Type.object() | Type.function([.plain(.integer), .plain(.integer)] => .integer)
         // Note: information about signatures is discarded when unioning callable types.
         XCTAssertEqual(objOrFunc.description, ".object() | .function()")
         
@@ -813,29 +803,52 @@ class TypeSystemTests: XCTestCase {
         let strObj = Type.string + Type.object(withProperties: ["foo"])
         XCTAssertEqual(strObj.description, ".string + .object(withProperties: [\"foo\"])")
         
-        let funcObj = Type.object(withProperties: ["foo"], withMethods: ["m"]) + Type.function([.integer, .anything...] => .boolean)
-        XCTAssertEqual(funcObj.description, ".object(withProperties: [\"foo\"], withMethods: [\"m\"]) + .function([.integer, .anything...] => .boolean)")
+        let funcObj = Type.object(withProperties: ["foo"], withMethods: ["m"]) + Type.function([.plain(.integer), .rest(.anything)] => .boolean)
+        XCTAssertEqual(funcObj.description, ".object(withProperties: [\"foo\"], withMethods: [\"m\"]) + .function([.plain(.integer), .rest(.anything)] => .boolean)")
         
-        let funcConstrObj = Type.object(withProperties: ["foo"], withMethods: ["m"]) + Type.functionAndConstructor([.integer, .anything...] => .boolean)
-        XCTAssertEqual(funcConstrObj.description, ".object(withProperties: [\"foo\"], withMethods: [\"m\"]) + .function([.integer, .anything...] => .boolean) + .constructor([.integer, .anything...] => .boolean)")
+        let funcConstrObj = Type.object(withProperties: ["foo"], withMethods: ["m"]) + Type.functionAndConstructor([.plain(.integer), .rest(.anything)] => .boolean)
+        XCTAssertEqual(funcConstrObj.description, ".object(withProperties: [\"foo\"], withMethods: [\"m\"]) + .function([.plain(.integer), .rest(.anything)] => .boolean) + .constructor([.plain(.integer), .rest(.anything)] => .boolean)")
         
         // Test union of merged types
-        let strObjOrFuncObj = (Type.string + Type.object(withProperties: ["foo"])) | (Type.function([.anything...] => .float) + Type.object(withProperties: ["foo"]))
+        let strObjOrFuncObj = (Type.string + Type.object(withProperties: ["foo"])) | (Type.function([.rest(.anything)] => .float) + Type.object(withProperties: ["foo"]))
         XCTAssertEqual(strObjOrFuncObj.description, ".string + .object(withProperties: [\"foo\"]) | .object(withProperties: [\"foo\"]) + .function()")
     }
     
     func testTypeSerialization() {
-        let encoder = JSONEncoder()
-        let decocer = JSONDecoder()
-        
         for t in typeSuite {
-            let data = try! encoder.encode(t)
-            let tCopy = try! decocer.decode(Type.self, from: data)
+            var proto = t.asProtobuf()
+            let data = try! proto.serializedData()
+            proto = try! Fuzzilli_Protobuf_Type(serializedData: data)
+            let tCopy = try! Type(from: proto)
             XCTAssertEqual(t, tCopy)
         }
     }
     
-    let primitiveTypes: [Type] = [.undefined, .integer, .float, .string, .boolean]
+    func testTypeExtensionSerialization() {
+        let expectedType = Type.integer
+        let jsonType1 = """
+            {
+                "definiteType": \(BaseType.integer.rawValue),
+                "possibleType": \(BaseType.integer.rawValue)
+            }
+        """
+        let decodedType1 = try! Type(from: Fuzzilli_Protobuf_Type(jsonString: jsonType1))
+        XCTAssertEqual(expectedType, decodedType1)
+
+        // Runtime type collection relies on this kind of message producing
+        // a type without an extension attached to it.
+        let jsonType2 = """
+            {
+                "definiteType": \(BaseType.integer.rawValue),
+                "possibleType": \(BaseType.integer.rawValue),
+                "extension": {}
+            }
+        """
+        let decodedType2 = try! Type(from: Fuzzilli_Protobuf_Type(jsonString: jsonType2))
+        XCTAssertEqual(expectedType, decodedType2)
+    }
+
+    let primitiveTypes: [Type] = [.undefined, .integer, .float, .string, .boolean, .bigint, .regexp]
     
     // A set of different types used by various tests.
     let typeSuite: [Type] = [.undefined,
@@ -844,6 +857,9 @@ class TypeSystemTests: XCTestCase {
                              .string,
                              .boolean,
                              .unknown,
+                             .bigint,
+                             .regexp,
+                             .iterable,
                              .anything,
                              .nothing,
                              .object(),
@@ -878,32 +894,27 @@ class TypeSystemTests: XCTestCase {
                              .object(ofGroup: "B", withProperties: ["foo", "bar"], withMethods: ["m1"]),
                              .object(ofGroup: "B", withProperties: ["foo", "bar"], withMethods: ["m1", "m2"]),
                              .function(),
-                             .function([.anything...] => .unknown),
-                             .function([.integer, .string, .opt(.anything)] => .float),
+                             .function([.rest(.anything)] => .unknown),
+                             .function([.plain(.integer), .plain(.string), .opt(.anything)] => .float),
                              .constructor(),
-                             .constructor([.anything...] => .object()),
-                             .constructor([.integer, .string, .opt(.anything)] => .object()),
+                             .constructor([.rest(.anything)] => .object()),
+                             .constructor([.plain(.integer), .plain(.string), .opt(.anything)] => .object()),
                              .functionAndConstructor(),
-                             .functionAndConstructor([.anything...] => .unknown),
-                             .functionAndConstructor([.integer, .string, .opt(.anything)] => .object()),
+                             .functionAndConstructor([.rest(.anything)] => .unknown),
+                             .functionAndConstructor([.plain(.integer), .plain(.string), .opt(.anything)] => .object()),
                              .number,
                              .primitive,
                              .string | .object(),
                              .string | .object(withProperties: ["foo"]),
                              .object(withProperties: ["foo"]) | .function(),
-                             .object(withProperties: ["foo"]) | .constructor([.anything...] => .object()),
+                             .object(withProperties: ["foo"]) | .constructor([.rest(.anything)] => .object()),
                              .primitive | .object() | .function() | .constructor(),
                              .string + .object(withProperties: ["foo", "bar"]),
                              .integer + .object(withProperties: ["foo"], withMethods: ["m"]),
-                             .object(withProperties: ["foo", "bar"]) + .function([.integer] => .unknown),
-                             .object(ofGroup: "A", withProperties: ["foo", "bar"]) + .constructor([.integer] => .unknown),
-                             .object(withMethods: ["m1"]) + .functionAndConstructor([.integer, .boolean] => .unknown),
-                             .object(ofGroup: "A", withProperties: ["foo"], withMethods: ["m1"]) + .functionAndConstructor([.integer, .boolean] => .unknown),
-                             .phi(of: .anything),
-                             .phi(of: .integer),
-                             .phi(of: .primitive),
-                             .phi(of: .object()),
-                             .phi(of: .string | .object()),
+                             .object(withProperties: ["foo", "bar"]) + .function([.plain(.integer)] => .unknown),
+                             .object(ofGroup: "A", withProperties: ["foo", "bar"]) + .constructor([.plain(.integer)] => .unknown),
+                             .object(withMethods: ["m1"]) + .functionAndConstructor([.plain(.integer), .plain(.boolean)] => .unknown),
+                             .object(ofGroup: "A", withProperties: ["foo"], withMethods: ["m1"]) + .functionAndConstructor([.plain(.integer), .plain(.boolean)] => .unknown),
     ]
 }
 
@@ -925,11 +936,11 @@ extension TypeSystemTests {
             ("testPropertyTypeTransitions", testPropertyTypeTransitions),
             ("testMethodTypeTransitions", testMethodTypeTransitions),
             ("testCallableTypeSubsumption", testCallableTypeSubsumption),
-            ("testPhis", testPhis),
             ("testGeneralization", testGeneralization),
             ("testTypeUnioning", testTypeUnioning),
             ("testTypeIntersection", testTypeIntersection),
             ("testTypeMerging", testTypeMerging),
+            ("testSignatureTypes", testSignatureTypes),
             ("testTypeDescriptions", testTypeDescriptions),
             ("testTypeSerialization", testTypeSerialization),
         ]

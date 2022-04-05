@@ -16,12 +16,16 @@ import Foundation
 
 /// Minimizes programs.
 ///
-/// Executes various program reducers to shrink a program in size while retaining its special aspects.
+/// Executes various program reducers to shrink a program in size while retaining its special aspects. All of this
+/// happens on a separate dispatch queue so the main queue stays responsive.
 public class Minimizer: ComponentBase {
+    /// DispatchQueue on which program minimization happens.
+    private let minimizationQueue = DispatchQueue(label: "Minimizer")
+
     public init() {
         super.init(name: "Minimizer")
     }
-    
+
     enum MinimizationMode {
         // Normal minimization will honor the minimization limit, not perform
         // some of the expensive and especially "destructive" reductions (e.g.
@@ -32,70 +36,83 @@ public class Minimizer: ComponentBase {
         // ignoring the minimization limit.
         case aggressive
     }
-    
-    /// Minimize the given program while still preserving its special aspects.
-    /// The given program will not be changed by this function, rather a copy will be made.
-    func minimize(_ program: Program, withAspects aspects: ProgramAspects, usingMode mode: MinimizationMode) -> Program {
-        if mode == .normal && program.size <= fuzzer.config.minimizationLimit {
-            return program
+
+    /// Minimizes the given program while preserving its special aspects.
+    ///
+    /// Minimization will not modify the given program. Instead, it produce a new Program instance.
+    /// Once minimization is finished, the passed block will be invoked on the fuzzer's queue with the minimized program.
+    func withMinimizedCopy(_ program: Program, withAspects aspects: ProgramAspects, usingMode mode: MinimizationMode, block: @escaping (Program) -> ()) {
+        minimizationQueue.async {
+            let minimizedCode = self.internalMinimize(program, withAspects: aspects, usingMode: mode, limit: self.fuzzer.config.minimizationLimit)
+            self.fuzzer.async {
+                let minimizedProgram: Program
+                if self.fuzzer.config.inspection.contains(.history) {
+                    minimizedProgram = Program(code: minimizedCode, parent: program)
+                    minimizedProgram.comments.add("Minimizing \(program.id)", at: .header)
+                } else {
+                    minimizedProgram = Program(code: minimizedCode)
+                }
+                block(minimizedProgram)
+            }
         }
-        
-        let startTime = Date()
-        let initialSize = program.size
-        
+    }
+
+    private func internalMinimize(_ program: Program, withAspects aspects: ProgramAspects, usingMode mode: MinimizationMode, limit minimizationLimit: UInt) -> Code {
+        dispatchPrecondition(condition: .onQueue(minimizationQueue))
+
+        if mode == .normal && program.size <= fuzzer.config.minimizationLimit {
+            return program.code
+        }
+
         // Implementation of minimization limits:
         // Pick N (~= the minimum program size) instructions at random which will not be removed during minimization.
         // This way, minimization will be sped up (because no executions are necessary for those instructions marked as keep-alive)
         // while the instructions that are kept artificially are equally distributed throughout the program.
         var keptInstructions = Set<Int>()
-        if mode == .normal && fuzzer.config.minimizationLimit > 0 {
-            let analyzer = DefUseAnalyzer(for: program)
+        if mode == .normal && minimizationLimit > 0 {
+            let analyzer = VariableAnalyzer(for: program)
             var indices = Array(0..<program.size).shuffled()
-            
-            while keptInstructions.count < fuzzer.config.minimizationLimit {
+
+            while keptInstructions.count < minimizationLimit {
                 func keep(_ instr: Instruction) {
-                    guard !keptInstructions.contains(instr.index) else {
-                        return
-                    }
+                    guard !keptInstructions.contains(instr.index) else { return }
                     
                     keptInstructions.insert(instr.index)
                     
                     // Keep alive all inputs recursively.
                     for input in instr.inputs {
-                        let inputInstr = analyzer.definition(of: input)
-                        keep(inputInstr)
+                        keep(analyzer.definition(of: input))
                     }
                 }
                 
-                keep(program[indices.removeLast()])
+                keep(program.code[indices.removeLast()])
             }
         }
 
-        let verifier = ReductionVerifier(for: aspects, of: fuzzer, keeping: keptInstructions)
-        var current = program.copy()
-        
+        let verifier = ReductionVerifier(for: aspects, of: self.fuzzer, keeping: keptInstructions)
+        var code = program.code
+
         repeat {
             verifier.didReduce = false
-            
+
             let reducers: [Reducer]
             switch mode {
             case .aggressive:
-                reducers = [CallArgumentReducer(), ReplaceReducer(), GenericInstructionReducer(), BlockReducer(), InliningReducer(fuzzer)]
+                reducers = [CallArgumentReducer(), ReplaceReducer(), GenericInstructionReducer(), BlockReducer(), InliningReducer()]
             case .normal:
-                reducers = [ReplaceReducer(), GenericInstructionReducer(), BlockReducer(), InliningReducer(fuzzer)]
+                reducers = [ReplaceReducer(), GenericInstructionReducer(), BlockReducer(), InliningReducer()]
             }
-            
+
             for reducer in reducers {
-                current = reducer.reduce(current, with: verifier)
+                reducer.reduce(&code, with: verifier)
             }
         } while verifier.didReduce && mode == .aggressive
-        
-        // Most reducers replace instructions with NOPs instead of deleting them. Remove those NOPs now.
-        current.normalize()
-        
-        let endTime = Date()
-        logger.verbose("Minimization finished after \(String(format: "%.2f", endTime.timeIntervalSince(startTime)))s and shrank the program from \(initialSize) to \(current.size) instructions")
 
-        return current
+        assert(code.isStaticallyValid())
+        
+        // Most reducers replace instructions with NOPs instead of deleting them. Remove those NOPs now, and renumber the variables.
+        code.normalize()
+
+        return code
     }
 }

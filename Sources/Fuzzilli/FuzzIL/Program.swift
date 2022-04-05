@@ -12,205 +12,151 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-/// Unit of code that can be executed, scored, and mutated.
+import Foundation
+
+/// Immutable unit of code that can, amongst others, be lifted, executed, scored, (de)serialized, and serve as basis for mutations.
 ///
-/// There are a few invariants of programs that are enforced by the engine:
-///
-/// * The empty program is valid
+/// A Program's code is guaranteed to have a number of static properties, as checked by code.isStaticallyValid():
 /// * All input variables must have previously been defined
-/// * Variables have increasing numbers starting at zero and there are no holes (TODO check in isValid())
-/// * An instruction always produces a new output variable (SSA form)
-/// * The first input to a Copy operation must be a variable produced by a Phi operation (SSA form)
+/// * Variables have increasing numbers starting at zero and there are no holes
+/// * Variables are only used while they are visible (the block they were defined in is still active)
+/// * Blocks are balanced and the opening and closing operations match (e.g. BeginIf is closed by EndIf)
+/// * An instruction always produces a new output variable
 ///
-/// These invariants can be verified at any time by calling check().
-///
-public class Program: Collection, Codable {
-    /// A program is simply a collection of instructions.
-    //  private var instructions: [Instruction] = []
-    var instructions: [Instruction] = []
+public final class Program {
+    /// The immutable code of this program.
+    public let code: Code
     
-    /// Constructs am empty program.
-    public init() {}
+    /// The parent program that was used to construct this program.
+    /// This is mostly only used when inspection mode is enabled to reconstruct
+    /// the "history" of a program.
+    public private(set) var parent: Program? = nil
     
+    /// Comments attached to this program
+    public var comments = ProgramComments()
+
+    /// Current type information combined from available sources
+    public var types = ProgramTypes()
+
+    /// Result of runtime type collection execution, by default there was none.
+    public var typeCollectionStatus = TypeCollectionStatus.notAttempted
+    
+    /// Each program has a unique ID to identify it even accross different fuzzer instances.
+    public private(set) lazy var id = UUID()
+
+    /// Constructs an empty program.
+    public init() {
+        self.code = Code()
+        self.parent = nil
+    }
+
+    /// Constructs a program with the given code. The code must be statically valid.
+    public init(with code: Code) {
+        assert(code.isStaticallyValid())
+        self.code = code
+    }
+
+    /// Construct a program with the given code and type information.
+    public convenience init(code: Code, parent: Program? = nil, types: ProgramTypes = ProgramTypes(), comments: ProgramComments = ProgramComments()) {
+        self.init(with: code)
+        self.types = types
+        self.comments = comments
+        self.parent = parent
+    }
+
+    public func type(of variable: Variable, after instrIndex: Int) -> Type {
+        return types.getType(of: variable, after: instrIndex)
+    }
+
+    public func type(of variable: Variable, before instrIndex: Int) -> Type {
+        return types.getType(of: variable, after: instrIndex - 1)
+    }
+
     /// The number of instructions in this program.
-    var size: Int {
-        return instructions.count
-    }
-    
-    /// The index of the first instruction, always 0.
-    public let startIndex = 0
-    
-    /// The index of the last instruction plus one, always equal to the size of the program.
-    public var endIndex: Int {
-        return size
-    }
-    
-    /// Advances the given index by one. Simply returns the argument plus 1.
-    public func index(after i: Int) -> Int {
-        return i + 1
-    }
-    
-    /// Returns the ith instruction in this program.
-    public subscript(i: Int) -> Instruction {
-        return instructions[i]
-    }
-    
-    /// The last instruction in this program.
-    public var lastInstruction: Instruction {
-        return instructions.last!
+    public var size: Int {
+        return code.count
     }
 
-    /// Creates a (shallow) copy of this program.
+    /// Indicates whether this program is empty.
+    public var isEmpty: Bool {
+        return size == 0
+    }
+
+    public var hasTypeInformation: Bool {
+        return !types.isEmpty
+    }
+    
+    public func clearParent() {
+        parent = nil
+    }
+
+    // Create and return a deep copy of this program.
     public func copy() -> Program {
-        let copy = Program()
-        copy.instructions = instructions
-        return copy
-    }
-    
-    /// Appends the given instruction to this program.
-    public func append(_ instr: Instruction) {
-        let instruction = Instruction(operation: instr.operation, inouts: instr.inouts, index: size)
-        instructions.append(instruction)
-    }
-    
-    /// Removes the last instruction in this program.
-    public func removeLastInstruction() {
-        instructions.removeLast()
-    }
-    
-    /// Replaces an instruction with a different one. Returns the replaced instruction.
-    ///
-    /// - Parameters:
-    ///   - index: The index of the instruction to replace.
-    ///   - newInstr: The new instruction to replace the old instruction with.
-    /// - Returns: The old instruction.
-    @discardableResult
-    public func replace(instructionAt index: Int, with newInstr: Instruction) -> Instruction {
-        let oldInstr = instructions[index]
-        instructions[index] = Instruction(operation: newInstr.operation, inouts: newInstr.inouts, index: index)
-        return oldInstr
-    }
-    
-    /// Normalizes this program.
-    ///
-    /// Normalization:
-    ///  * Removes NOP instructions
-    ///  * Renames variables so their numbers are contiguous
-    public func normalize() {
-        var writeIndex = 0
-        var numVariables = 0
-        var varMap = VariableMap<Variable>()
-        
-        for instr in self {
-            if instr.operation is Nop {
-                continue
-            }
-            
-            for output in instr.allOutputs {
-                // Must create a new variable
-                assert(!varMap.contains(output))
-                let mappedVar = Variable(number: numVariables)
-                varMap[output] = mappedVar
-                numVariables += 1
-            }
-            
-            let inouts = instr.inouts.map({ varMap[$0]! })
-            
-            instructions[writeIndex] = Instruction(operation: instr.operation, inouts: inouts, index: writeIndex)
-            writeIndex += 1
-        }
-        
-        instructions.removeLast(size - writeIndex)
-    }
-    
-    /// Returns the instructions of this program in reversed order.
-    public func reversed() -> ReversedCollection<Array<Instruction>> {
-        return instructions.reversed()
-    }
-
-    /// Checks if this program is valid.
-    public func check() -> CheckResult {
-        var definedVariables = VariableMap<Int>()
-        var scopeCounter = 0
-        var visibleScopes = [scopeCounter]
-        var blockHeads = [Operation]()
-        var phis = VariableSet()
-        
-        for (idx, instr) in instructions.enumerated() {
-            guard idx == instr.index else {
-                return .invalid("instruction \(idx) has wrong index \(String(describing: instr.index))")
-            }
-            
-            // Block and scope management (1)
-            if instr.isBlockEnd {
-                guard let blockBegin = blockHeads.popLast() else {
-                    return .invalid("block was never started")
-                }
-                guard Matches(blockBegin, instr.operation) else {
-                    return .invalid("block end does not match block start")
-                }
-                visibleScopes.removeLast()
-            }
-            
-            // Ensure all input variables are valid and have been defined
-            for input in instr.inputs {
-                guard let definingScope = definedVariables[input] else {
-                    return .invalid("variable \(input) was never defined")
-                }
-                guard visibleScopes.contains(definingScope) else {
-                    return .invalid("variable \(input) is not visible anymore")
-                }
-            }
-            
-            // Ensure output variables don't exist yet
-            for output in instr.outputs {
-                guard !definedVariables.contains(output) else {
-                    return .invalid("variable \(output) was already defined")
-                }
-                definedVariables[output] = visibleScopes.last!
-            }
-            
-            // Block and scope management (2)
-            if instr.isBlockBegin {
-                scopeCounter += 1
-                visibleScopes.append(scopeCounter)
-                blockHeads.append(instr.operation)
-            }
-
-            // Ensure inner output variables don't exist yet
-            for output in instr.innerOutputs {
-                guard !definedVariables.contains(output) else {
-                    return .invalid("variable \(output) was already defined")
-                }
-                definedVariables[output] = visibleScopes.last!
-            }
-            
-            // Special handling for Phi and Copy operations
-            if instr.operation is Phi {
-                phis.insert(instr.output)
-            } else if instr.operation is Copy {
-                guard phis.contains(instr.input(0)) else {
-                    return .invalid("input to a Copy operation is not the output of a Phi operation")
-                }
-            }
-        }
-        return .valid
-    }
-    
-    /// Possible outcomes of the Program.check() method.
-    public enum CheckResult {
-        case valid
-        case invalid(_ reason: String)
+        let proto = self.asProtobuf()
+        return try! Program(from: proto)
     }
 }
 
-public func ==(lhs: Program.CheckResult, rhs: Program.CheckResult) -> Bool {
-    switch (lhs, rhs) {
-    case (.valid, .valid):
-        return true
-    case let (.invalid(a), .invalid(b)):
-        return a == b
-    default:
-        return false
+extension Program: ProtobufConvertible {
+    public typealias ProtobufType = Fuzzilli_Protobuf_Program
+
+    func asProtobuf(opCache: OperationCache? = nil, typeCache: TypeCache? = nil) -> ProtobufType {
+        return ProtobufType.with {
+            $0.uuid = id.uuidData
+            $0.code = code.map({ $0.asProtobuf(with: opCache) })
+            $0.types = types.asProtobuf(with: typeCache)
+            $0.typeCollectionStatus = Fuzzilli_Protobuf_TypeCollectionStatus(rawValue: Int(typeCollectionStatus.rawValue))!
+
+            if !comments.isEmpty {
+                $0.comments = comments.asProtobuf()
+            }
+
+            if let parent = parent {
+                $0.parent = parent.asProtobuf(opCache: opCache, typeCache: typeCache)
+            }
+        }
+    }
+
+    public func asProtobuf() -> ProtobufType {
+        return asProtobuf(opCache: nil, typeCache: nil)
+    }
+    
+    convenience init(from proto: ProtobufType, opCache: OperationCache? = nil, typeCache: TypeCache? = nil) throws {
+        var code = Code()
+        for (i, protoInstr) in proto.code.enumerated() {
+            do {
+                code.append(try Instruction(from: protoInstr, with: opCache))
+            } catch FuzzilliError.instructionDecodingError(let reason) {
+                throw FuzzilliError.programDecodingError("could not decode instruction #\(i): \(reason)")
+            }
+        }
+
+        do {
+            try code.check()
+        } catch FuzzilliError.codeVerificationError(let reason) {
+            throw FuzzilliError.programDecodingError("decoded code is not statically valid: \(reason)")
+        }
+
+        do {
+            self.init(code: code, types: try ProgramTypes(from: proto.types, with: typeCache))
+        } catch FuzzilliError.typeDecodingError(let reason) {
+            throw FuzzilliError.programDecodingError("could not decode type information: \(reason)")
+        }
+
+        self.typeCollectionStatus = TypeCollectionStatus(rawValue: UInt8(proto.typeCollectionStatus.rawValue)) ?? .notAttempted
+
+        if let uuid = UUID(uuidData: proto.uuid) {
+            self.id = uuid
+        }
+
+        self.comments = ProgramComments(from: proto.comments)
+
+        if proto.hasParent {
+            self.parent = try Program(from: proto.parent, opCache: opCache, typeCache: typeCache)
+        }
+    }
+    
+    public convenience init(from proto: ProtobufType) throws {
+        try self.init(from: proto, opCache: nil, typeCache: nil)
     }
 }

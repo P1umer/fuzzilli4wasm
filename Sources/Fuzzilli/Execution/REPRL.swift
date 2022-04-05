@@ -16,137 +16,186 @@ import Foundation
 import libreprl
 
 /// Read-Eval-Print-Reset-Loop: a script runner that reuses the same process for multiple
-/// scripts but resets the global state in between
+/// scripts, but resets the global state in between executions.
 public class REPRL: ComponentBase, ScriptRunner {
     /// Kill and restart the child process after this many script executions
-    private let maxExecsBeforeRespawn = 100
-    
+    private let maxExecsBeforeRespawn = 1000
+
     /// Commandline arguments for the executable
     private let processArguments: [String]
-    
-    /// The PID of the child process
-    private var pid: Int32 = 0
-    
-    /// Read file descriptor of the control pipe
-    private var crfd: CInt = 0
-    /// Write file descriptor of the control pipe
-    private var cwfd: CInt = 0
-    /// Read file descriptor of the data pipe
-    private var drfd: CInt = 0
-    /// Write file descriptor of the data pipe
-    private var dwfd: CInt = 0
-    
+
     /// Environment variables for the child process
     private var env = [String]()
-    
+
     /// Number of script executions since start of child process
     private var execsSinceReset = 0
-    
-    /// C-string arrays for argv and envp. Created during initialization.
-    private var argv: UnsafeMutablePointer<UnsafeMutablePointer<Int8>?>? = nil
-    private var envp: UnsafeMutablePointer<UnsafeMutablePointer<Int8>?>? = nil
-    
+
+    /// Number of execution failures since the last successfully executed program
+    private var recentlyFailedExecutions = 0
+
+    /// The opaque REPRL context used by the C library
+    fileprivate var reprlContext: OpaquePointer? = nil
+
+    /// Essentially counts the number of run() invocations
+    fileprivate var lastExecId = 0
+
+    /// Buffer to hold scripts, this lets us debug issues that arise if
+    /// previous scripts corrupted any state which is discovered in
+    /// future executions. This is only used if diagnostics mode is enabled.
+    private var scriptBuffer = String()
+
     public init(executable: String, processArguments: [String], processEnvironment: [String: String]) {
         self.processArguments = [executable] + processArguments
         super.init(name: "REPRL")
-        
+
         for (key, value) in processEnvironment {
             env.append(key + "=" + value)
         }
     }
-    
+
     override func initialize() {
-        // We need to ignore SIGPIPE since we are writing to a pipe
-        // without checking if our child is still alive before.
-        signal(SIGPIPE, SIG_IGN)
-        
-        argv = convertToCArray(processArguments)
-        envp = convertToCArray(env)
-        respawn(shouldKill: false)
-        
-        // Kill child processes on shutdown
-        fuzzer.events.Shutdown.observe {
-            self.killChild()
+        reprlContext = libreprl.reprl_create_context()
+        if reprlContext == nil {
+            logger.fatal("Failed to create REPRL context")
+        }
+
+        let argv = convertToCArray(processArguments)
+        let envp = convertToCArray(env)
+
+        if reprl_initialize_context(reprlContext, argv, envp, /* capture_stdout: */ fuzzer.config.enableDiagnostics ? 1 : 0, /* capture stderr: */ 1) != 0 {
+            logger.fatal("Failed to initialize REPRL context: \(String(cString: reprl_get_last_error(reprlContext)))")
+        }
+
+        freeCArray(argv, numElems: processArguments.count)
+        freeCArray(envp, numElems: env.count)
+
+        fuzzer.registerEventListener(for: fuzzer.events.Shutdown) { _ in
+            reprl_destroy_context(self.reprlContext)
         }
     }
-    
+
     public func setEnvironmentVariable(_ key: String, to value: String) {
         env.append(key + "=" + value)
     }
-    
-    private func killChild() {
-        if pid != 0 {
-            kill(pid, SIGKILL)
-            var exitCode: Int32 = 0
-            waitpid(pid, &exitCode, 0)
-        }
-    }
-    
-    private func respawn(shouldKill: Bool) {
-        if pid != 0 {
-            if shouldKill {
-                killChild()
-            }
-            close(crfd)
-            close(cwfd)
-            close(drfd)
-            close(dwfd)
-        }
-        
-        var success = false
-        var child = reprl_child_process()
-        for _ in 0..<100 {
-            if reprl_spawn_child(argv, envp, &child) == 0 {
-                success = true
-                break
-            }
-            sleep(1)
-        }
-        if !success {
-            logger.fatal("Failed to spawn REPRL child process")
-        }
-        
-        pid = child.pid
-        crfd = child.crfd
-        cwfd = child.cwfd
-        drfd = child.drfd
-        dwfd = child.dwfd
-        
-        execsSinceReset = 0
-    }
-    
+
     public func run(_ script: String, withTimeout timeout: UInt32) -> Execution {
+        // Log the current script into the buffer if diagnostics are enabled.
+        if fuzzer.config.enableDiagnostics {
+            self.scriptBuffer += script + "\n"
+        }
+
+        lastExecId += 1
+
+        let execution = REPRLExecution(from: self)
+
+        guard script.count <= REPRL_MAX_DATA_SIZE else {
+            logger.error("Script too large to execute. Assuming timeout...")
+            execution.outcome = .timedOut
+            return execution
+        }
+
         execsSinceReset += 1
-        
+        var freshInstance: Int32 = 0
         if execsSinceReset > maxExecsBeforeRespawn {
-            respawn(shouldKill: true)
+            freshInstance = 1
+            execsSinceReset = 0
+            if fuzzer.config.enableDiagnostics {
+                scriptBuffer.removeAll(keepingCapacity: true)
+            }
         }
-        
-        var result = reprl_result()
-        
-        let code = script.data(using: .utf8)!
-        let res = code.withUnsafeBytes { (body: UnsafeRawBufferPointer) -> CInt in
-            return reprl_execute_script(pid, crfd, cwfd, drfd, dwfd, CInt(timeout), body.bindMemory(to: Int8.self).baseAddress, Int64(code.count), &result)
+
+        var execTime: UInt64 = 0        // In microseconds
+        let timeout = UInt64(timeout) * 1000        // In microseconds
+        var status: Int32 = 0
+        script.withCString {
+            status = reprl_execute(reprlContext, $0, UInt64(script.count), UInt64(timeout), &execTime, freshInstance)
+            // If we fail, we retry after a short timeout and with a fresh instance. If we still fail, we give up trying
+            // to execute this program. If we repeatedly fail to execute any program, we abort.
+            if status < 0 {
+                logger.warning("Script execution failed: \(String(cString: reprl_get_last_error(reprlContext))). Retrying in 1 second...")
+                if fuzzer.config.enableDiagnostics {
+                    fuzzer.dispatchEvent(fuzzer.events.DiagnosticsEvent, data: (name: "REPRLFail", content: scriptBuffer))
+                }
+                Thread.sleep(forTimeInterval: 1)
+                status = reprl_execute(reprlContext, $0, UInt64(script.count), UInt64(timeout), &execTime, 1)
+            }
         }
-        
-        if res != 0 {
-            // Execution failed somehow. Need to respawn and retry
-            sleep(1)
-            respawn(shouldKill: true)
-            return run(script, withTimeout: timeout)
+
+        if status < 0 {
+            logger.error("Script execution failed again: \(String(cString: reprl_get_last_error(reprlContext))). Giving up")
+            // If we weren't able to successfully execute a script in the last N attempts, abort now...
+            recentlyFailedExecutions += 1
+            if recentlyFailedExecutions >= 10 {
+                logger.fatal("Too many consecutive REPRL failures")
+            }
+            execution.outcome = .failed(1)
+            return execution
         }
-        
-        if result.child_died != 0 {
-            respawn(shouldKill: false)
+        recentlyFailedExecutions = 0
+
+        if RIFEXITED(status) != 0 {
+            let code = REXITSTATUS(status)
+            if code == 0 {
+                execution.outcome = .succeeded
+            } else {
+                execution.outcome = .failed(Int(code))
+            }
+        } else if RIFSIGNALED(status) != 0 {
+            execution.outcome = .crashed(Int(RTERMSIG(status)))
+        } else if RIFTIMEDOUT(status) != 0 {
+            execution.outcome = .timedOut
+        } else {
+            fatalError("Unknown REPRL exit status \(status)")
         }
-        
-        let output = String(data: Data(bytes: result.output, count: result.output_size), encoding: .utf8)!
-        free(result.output)
-        
-        return Execution(pid: Int(pid),
-                         outcome: ExecutionOutcome.fromExitStatus(result.status),
-                         termsig: Int(WTERMSIG(result.status)),
-                         output: output,
-                         execTime: UInt(result.exec_time))
+        execution.execTime = Double(execTime) / 1_000_000
+
+        return execution
+    }
+}
+
+class REPRLExecution: Execution {
+    private var cachedStdout: String? = nil
+    private var cachedStderr: String? = nil
+    private var cachedFuzzout: String? = nil
+
+    private unowned let reprl: REPRL
+    private let execId: Int
+
+    var outcome = ExecutionOutcome.succeeded
+    var execTime: TimeInterval = 0
+
+    init(from reprl: REPRL) {
+        self.reprl = reprl
+        self.execId = reprl.lastExecId
+    }
+
+    // The output streams (stdout, stderr, fuzzout) can only be accessed before
+    // the next REPRL execution. This function can be used to verify that.
+    private var outputStreamsAreValid: Bool {
+        return execId == reprl.lastExecId
+    }
+
+    var stdout: String {
+        assert(outputStreamsAreValid)
+        if cachedStdout == nil {
+            cachedStdout = String(cString: reprl_fetch_stdout(reprl.reprlContext))
+        }
+        return cachedStdout!
+    }
+
+    var stderr: String {
+        assert(outputStreamsAreValid)
+        if cachedStderr == nil {
+            cachedStderr = String(cString: reprl_fetch_stderr(reprl.reprlContext))
+        }
+        return cachedStderr!
+    }
+
+    var fuzzout: String {
+        assert(outputStreamsAreValid)
+        if cachedFuzzout == nil {
+            cachedFuzzout = String(cString: reprl_fetch_fuzzout(reprl.reprlContext))
+        }
+        return cachedFuzzout!
     }
 }

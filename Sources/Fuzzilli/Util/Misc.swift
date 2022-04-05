@@ -14,16 +14,17 @@
 
 import Foundation
 
-func temporaryDirectory() -> URL {
-    return URL(fileURLWithPath: "/tmp")
-}
-
 func currentMillis() -> UInt64 {
     return UInt64(Date().timeIntervalSince1970 * 1000)
 }
 
 func uniqueElements<E>(of list: [E]) -> [E] where E: Hashable {
     return Array(Set(list))
+}
+
+func align(_ v: Int, to desiredAlignment: Int) -> Int {
+    let remainder = v % desiredAlignment
+    return remainder != 0 ? desiredAlignment - remainder : 0
 }
 
 func measureTime<R>(_ operation: () -> R) -> (R, Double) {

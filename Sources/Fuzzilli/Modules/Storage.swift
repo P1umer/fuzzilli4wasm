@@ -16,81 +16,172 @@ import Foundation
 
 /// Module to store programs to disk.
 public class Storage: Module {
+    private let storageDir: String
     private let crashesDir: String
     private let duplicateCrashesDir: String
-    private let interestingDir: String
+    private let corpusDir: String
+    private let statisticsDir: String
     private let stateFile: String
-    
-    private let stateExportInterval: Double?
-    
+    private let failedDir: String
+    private let timeOutDir: String
+    private let diagnosticsDir: String
+
+    private let statisticsExportInterval: Double?
+
     private unowned let fuzzer: Fuzzer
     private let logger: Logger
-    
-    public init(for fuzzer: Fuzzer, storageDir: String, stateExportInterval: Double? = nil) {
+
+    public init(for fuzzer: Fuzzer, storageDir: String, statisticsExportInterval: Double? = nil) {
+        self.storageDir = storageDir
         self.crashesDir = storageDir + "/crashes"
         self.duplicateCrashesDir = storageDir + "/crashes/duplicates"
-        self.interestingDir = storageDir + "/interesting"
-        self.stateFile = storageDir + "/state.json"
-        
-        self.stateExportInterval = stateExportInterval
-        
-        self.fuzzer = fuzzer
-        self.logger = fuzzer.makeLogger(withLabel: "Storage")
+        self.corpusDir = storageDir + "/corpus"
+        self.failedDir = storageDir + "/failed"
+        self.timeOutDir = storageDir + "/timeouts"
+        self.statisticsDir = storageDir + "/stats"
+        self.stateFile = storageDir + "/state.bin"
+        self.diagnosticsDir = storageDir + "/diagnostics"
 
+        self.statisticsExportInterval = statisticsExportInterval
+
+        self.fuzzer = fuzzer
+        self.logger = Logger(withLabel: "Storage")
+    }
+
+    public func initialize(with fuzzer: Fuzzer) {
         do {
             try FileManager.default.createDirectory(atPath: crashesDir, withIntermediateDirectories: true)
             try FileManager.default.createDirectory(atPath: duplicateCrashesDir, withIntermediateDirectories: true)
-            try FileManager.default.createDirectory(atPath: interestingDir, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(atPath: corpusDir, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(atPath: statisticsDir, withIntermediateDirectories: true)
+            if fuzzer.config.enableDiagnostics {
+                try FileManager.default.createDirectory(atPath: failedDir, withIntermediateDirectories: true)
+                try FileManager.default.createDirectory(atPath: timeOutDir, withIntermediateDirectories: true)
+                try FileManager.default.createDirectory(atPath: diagnosticsDir, withIntermediateDirectories: true)
+            }
         } catch {
             logger.fatal("Failed to create storage directories. Is \(storageDir) writable by the current user?")
         }
-    }
-    
-    public func initialize(with fuzzer: Fuzzer) {
-       fuzzer.events.CrashFound.observe { ev in
-            let filename = "crash_\(String(currentMillis()))_\(ev.pid)_\(ev.behaviour.rawValue)_\(ev.signal).js"
-            let fileURL: URL
+
+        fuzzer.registerEventListener(for: fuzzer.events.CrashFound) { ev in
+            let filename = "program_\(self.formatDate())_\(ev.program.id)_\(ev.behaviour.rawValue)"
             if ev.isUnique {
-                fileURL = URL(fileURLWithPath: "\(self.crashesDir)/\(filename)")
+                self.storeProgram(ev.program, as: filename, in: self.crashesDir)
             } else {
-                fileURL = URL(fileURLWithPath: "\(self.duplicateCrashesDir)/\(filename)")
+                self.storeProgram(ev.program, as: filename, in: self.duplicateCrashesDir)
             }
-            let code = fuzzer.lifter.lift(ev.program)
-            self.storeProgram(code, to: fileURL)
         }
-        
-        fuzzer.events.InterestingProgramFound.observe { ev in
-            let filename = "sample_\(String(currentMillis())).js"
-            let fileURL = URL(fileURLWithPath: "\(self.interestingDir)/\(filename)")
-            let code = fuzzer.lifter.lift(ev.program, withOptions: .dumpTypes)
-            self.storeProgram(code, to: fileURL)
+
+        fuzzer.registerEventListener(for: fuzzer.events.InterestingProgramFound) { ev in
+            let filename = "program_\(self.formatDate())_\(ev.program.id)"
+            self.storeProgram(ev.program, as: filename, in: self.corpusDir)
         }
-        
-        // If enabled, export the current fuzzer state to disk in regular intervals.
-        if let interval = stateExportInterval {
-            fuzzer.timers.scheduleTask(every: interval, saveState)
-            fuzzer.events.Shutdown.observe(saveState)
+
+        if fuzzer.config.enableDiagnostics {
+            fuzzer.registerEventListener(for: fuzzer.events.DiagnosticsEvent) { ev in
+                let filename = "\(self.formatDate())_\(ev.name)_\(String(currentMillis()))"
+                let url = URL(fileURLWithPath: self.diagnosticsDir + filename + ".diag")
+                self.createFile(url, withContent: ev.content)
+            }
+
+            fuzzer.registerEventListener(for: fuzzer.events.InvalidProgramFound) { program in
+                let filename = "program_\(self.formatDate())_\(program.id)"
+                self.storeProgram(program, as: filename, in: self.failedDir)
+            }
+
+            fuzzer.registerEventListener(for: fuzzer.events.TimeOutFound) { program in
+                let filename = "program_\(self.formatDate())_\(program.id)"
+                self.storeProgram(program, as: filename, in: self.timeOutDir)
+            }
+        }
+
+        // If enabled, export fuzzing statistics to disk in regular intervals.
+        if let interval = statisticsExportInterval {
+            guard let stats = Statistics.instance(for: fuzzer) else {
+                logger.fatal("Requested stats export but no Statistics module is active")
+            }
+            fuzzer.timers.scheduleTask(every: interval) { self.saveStatistics(stats) }
+            fuzzer.registerEventListener(for: fuzzer.events.Shutdown) { _ in self.saveStatistics(stats) }
+        }
+    }
+
+    private func createFile(_ url: URL, withContent content: String) {
+        do {
+            try content.write(to: url, atomically: false, encoding: String.Encoding.utf8)
+        } catch {
+            logger.error("Failed to write file \(url): \(error)")
         }
     }
     
-    private func storeProgram(_ code: String, to url: URL) {
+    private func createFile(_ url: URL, withContent content: Data) {
         do {
-            try code.write(to: url, atomically: false, encoding: String.Encoding.utf8)
+            try content.write(to: url)
         } catch {
-            logger.error("Failed to write program to disk: \(error)")
+            logger.error("Failed to write file \(url): \(error)")
         }
     }
 
-    private func saveState() {
-        let state = fuzzer.exportState()
-        let encoder = JSONEncoder()
+    private func storeProgram(_ program: Program, as filename: String, in directory: String) {
+        // Always include comments when writing programs to disk
+        var options = LiftingOptions.includeComments
+
+        // If enabled, also include type information
+        if fuzzer.config.inspection.contains(.types) {
+            options.insert(.dumpTypes)
+        }
+
+        let code = fuzzer.lifter.lift(program, withOptions: options)
+        let url = URL(fileURLWithPath: "\(directory)/\(filename).js")
+        createFile(url, withContent: code)
+        
+        // Also store the FuzzIL program in its protobuf format. This can later be imported again or inspected using the FuzzILTool
+        do {
+            let pb = try program.asProtobuf().serializedData()
+            let url = URL(fileURLWithPath: "\(directory)/\(filename).fuzzil.protobuf")
+            createFile(url, withContent: pb)
+        } catch {
+            logger.warning("Failed to serialize program to protobuf: \(error)")
+        }
+
+        // If inspection is enabled, we also include the programs ancestor chain in a separate .history file
+        if fuzzer.config.inspection.contains(.history) && program.parent != nil {
+            let lifter = FuzzILLifter()
+
+            var ancestors: [Program] = []
+            var current: Program? = program
+            while current != nil {
+                ancestors.append(current!)
+                current = current?.parent
+            }
+            ancestors.reverse()
+
+            var content = ""
+            for program in ancestors {
+                content += "// ===== [ Program \(program.id) ] =====\n"
+                content += lifter.lift(program, withOptions: options) + "\n\n"
+            }
+
+            let url = URL(fileURLWithPath: "\(directory)/\(filename).fuzzil.history")
+            createFile(url, withContent: content)
+        }
+    }
+
+    private func saveStatistics(_ stats: Statistics) {
+        let statsData = stats.compute()
 
         do {
-            let data = try encoder.encode(state)
-            let url = URL(fileURLWithPath: self.stateFile)
+            let data = try statsData.jsonUTF8Data()
+            let url = URL(fileURLWithPath: "\(self.statisticsDir)/\(formatDate()).json")
             try data.write(to: url)
+
         } catch {
-            logger.error("Failed to write state to disk: \(error)")
+            logger.error("Failed to write statistics to disk: \(error)")
         }
+    }
+
+    private func formatDate() -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMMddHHmmss"
+        return formatter.string(from: Date())
     }
 }

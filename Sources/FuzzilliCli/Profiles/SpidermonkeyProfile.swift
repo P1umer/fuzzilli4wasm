@@ -14,9 +14,8 @@
 
 import Fuzzilli
 
-fileprivate func ForceSpidermonkeyIonGenerator(_ b: ProgramBuilder) {
-    let f = b.randVar(ofType: .function())
-    let arguments = b.generateCallArguments(for: f)
+fileprivate let ForceSpidermonkeyIonGenerator = CodeGenerator("ForceSpidermonkeyIonGenerator", input: .function()) { b, f in
+   guard let arguments = b.randCallArguments(for: f) else { return }
     
     let start = b.loadInt(0)
     let end = b.loadInt(100)
@@ -28,9 +27,6 @@ fileprivate func ForceSpidermonkeyIonGenerator(_ b: ProgramBuilder) {
 
 let spidermonkeyProfile = Profile(
     processArguments: [
-        "--no-threads",
-        "--cpu-count=1",
-        "--ion-offthread-compile=off",
         "--baseline-warmup-threshold=10",
         "--ion-warmup-threshold=100",
         "--ion-check-range-analysis",
@@ -42,25 +38,34 @@ let spidermonkeyProfile = Profile(
     processEnv: ["UBSAN_OPTIONS": "handle_segv=0"],
 
     codePrefix: """
+                function placeholder(){}
                 function main() {
                 """,
 
     codeSuffix: """
+                gc();
                 }
                 main();
-                gc();
                 """,
+
+    ecmaVersion: ECMAScriptVersion.es6,
 
     crashTests: ["fuzzilli('FUZZILLI_CRASH', 0)", "fuzzilli('FUZZILLI_CRASH', 1)", "fuzzilli('FUZZILLI_CRASH', 2)"],
 
     additionalCodeGenerators: WeightedList<CodeGenerator>([
         (ForceSpidermonkeyIonGenerator, 10),
     ]),
-    
+
+    additionalProgramTemplates: WeightedList<ProgramTemplate>([]),
+
+    disabledCodeGenerators: [],
+
     additionalBuiltins: [
         "gc"            : .function([] => .undefined),
-        "enqueueJob"    : .function([.function()] => .undefined),
+        "enqueueJob"    : .function([.plain(.function())] => .undefined),
         "drainJobQueue" : .function([] => .undefined),
         "bailout"       : .function([] => .undefined),
+        "placeholder"   : .function([] => .undefined),
+
     ]
 )

@@ -15,14 +15,17 @@
 import Foundation
 @testable import Fuzzilli
 
-/// Helper function to determine whether two programs contain exactly the same instructions in the same order.
-func areStructurallyEqual(_ p1: Program, _ p2: Program) -> Bool {
-    let encoder = JSONEncoder()
-    encoder.outputFormatting = .sortedKeys
-    
-    let d1 = try! encoder.encode(p1)
-    let d2 = try! encoder.encode(p2)
-
-    return d1 == d2
+extension Program: Equatable {
+    // Fairly expensive equality testing, but it's only needed for testing anyway... :)
+    public static func == (lhs: Program, rhs: Program) -> Bool {
+        // We consider two programs to be equal if their code is equal
+        let code1 = lhs.code.map({ $0.asProtobuf() })
+        let code2 = rhs.code.map({ $0.asProtobuf() })
+        return code1 == code2
+    }
 }
     
+// Convenience variable constructor
+func v(_ n: Int) -> Variable {
+    return Variable(number: n)
+}

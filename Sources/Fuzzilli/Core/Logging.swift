@@ -20,54 +20,62 @@ public enum LogLevel: Int {
     case warning = 2
     case error   = 3
     case fatal   = 4
+    
+    public func isAtLeast(_ level: LogLevel) -> Bool {
+        return self.rawValue <= level.rawValue
+    }
 }
 
+/// Logs messages to the active fuzzer instance or prints them to stdout if no fuzzer is active.
 public class Logger {
-    typealias LogEvent = Event<(creator: UUID, level: LogLevel, label: String, message: String)>
-    
-    private let creator: UUID
-    private let event: LogEvent
     private let label: String
-    private let minLevel: LogLevel
     
-    init(creator: UUID, logEvent: LogEvent, label: String, minLevel: LogLevel) {
-        self.creator = creator
-        self.event = logEvent
+    public init(withLabel label: String) {
         self.label = label
-        self.minLevel = minLevel
     }
     
-    private func log(level: LogLevel, msg: String) {
-        if minLevel.rawValue <= level.rawValue {
-            event.dispatch(with: (creator: creator, level: level, label: label, message: msg))
+    private func log(_ message: String, atLevel level: LogLevel) {
+        if let fuzzer = Fuzzer.current {
+            if fuzzer.config.logLevel.isAtLeast(level) {
+                fuzzer.dispatchEvent(fuzzer.events.Log, data: (fuzzer.id, level, label, message))
+            }
+        } else {
+            print("[\(label)] \(message)")
         }
     }
     
     /// Log a message with log level verbose.
     public func verbose(_ msg: String) {
-        log(level: .verbose, msg: msg)
+        log(msg, atLevel: .verbose)
     }
 
     /// Log a message with log level info.
     public func info(_ msg: String) {
-        log(level: .info, msg: msg)
+        log(msg, atLevel: .info)
     }
 
     /// Log a message with log level warning.
     public func warning(_ msg: String) {
-        log(level: .warning, msg: msg)
+        log(msg, atLevel: .warning)
     }
 
     /// Log a message with log level error.
     public func error(_ msg: String) {
-        log(level: .error, msg: msg)
+        log(msg, atLevel: .error)
     }
 
-    /// Log a message with log level fatal. This will afterwards terminate the application.
+    /// Log a message with log level fatal.
+    /// This will terminate the process after shutting down the active fuzzer instance.
     public func fatal(_ msg: String) -> Never {
-        log(level: .fatal, msg: msg)
-        // We don't really want to do proper cleanup here as the fuzzer's internal state could be corupted.
-        // As such, just kill the entire process here...
+        log(msg, atLevel: .fatal)
+
+        // Attempt a clean shutdown so any persistent state is cleaned up.
+        // This should terminate the process (due to ShutdownComplete event handlers).
+        if let fuzzer = Fuzzer.current {
+            fuzzer.shutdown(reason: .fatalError)
+        }
+
+        // If the process hasn't terminated yet, just abort now.
         abort()
     }
 }

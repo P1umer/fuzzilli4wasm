@@ -22,70 +22,93 @@ protocol Analyzer {
 extension Analyzer {
     /// Analyze the provided program.
     mutating func analyze(_ program: Program) {
-        for instr in program {
+        analyze(program.code)
+    }
+    
+    mutating func analyze(_ code: Code) {
+        assert(code.isStaticallyValid())
+        for instr in code {
             analyze(instr)
         }
     }
 }
 
-/// Determines definitions and uses of variables.
-struct DefUseAnalyzer: Analyzer {
-    private var definitions = VariableMap<Int>()
+/// Determines definitions, assignments, and uses of variables.
+struct VariableAnalyzer: Analyzer {
+    private var assignments = VariableMap<[Int]>()
     private var uses = VariableMap<[Int]>()
-    
-    let program: Program
+    private let code: Code
+    private var analysisDone = false
     
     init(for program: Program) {
-        self.program = program
+        self.code = program.code
         analyze(program)
+        analysisDone = true
     }
-
+    
     mutating func analyze(_ instr: Instruction) {
+        assert(!analysisDone)
         for v in instr.allOutputs {
-            definitions[v] = instr.index
+            assignments[v] = [instr.index]
             uses[v] = []
         }
         for v in instr.inputs {
             assert(uses.contains(v))
             uses[v]?.append(instr.index)
+            if instr.reassigns(v) {
+                assignments[v]?.append(instr.index)
+            }
         }
     }
     
-    /// Returns the instruction defining the given variable.
+    /// Returns the instruction that defines the given variable.
     func definition(of variable: Variable) -> Instruction {
-        precondition(definitions.contains(variable))
-        return program[definitions[variable]!]
+        assert(assignments.contains(variable))
+        return code[assignments[variable]![0]]
+    }
+    
+    /// Returns all instructions that assign the given variable, including its initial definition.
+    func assignments(of variable: Variable) -> [Instruction] {
+        assert(assignments.contains(variable))
+        return assignments[variable]!.map({ code[$0] })
     }
     
     /// Returns the instructions using the given variable.
     func uses(of variable: Variable) -> [Instruction] {
-        precondition(uses.contains(variable))
-        return uses[variable]!.map({ program[$0] })
+        assert(uses.contains(variable))
+        return uses[variable]!.map({ code[$0] })
+    }
+    
+    /// Returns the indices of the instructions using the given variable.
+    func assignmentIndices(of variable: Variable) -> [Int] {
+        assert(uses.contains(variable))
+        return assignments[variable]!
     }
     
     /// Returns the indices of the instructions using the given variable.
     func usesIndices(of variable: Variable) -> [Int] {
-        precondition(uses.contains(variable))
+        assert(uses.contains(variable))
         return uses[variable]!
     }
     
     /// Returns the number of instructions using the given variable.
+    func numAssignments(of variable: Variable) -> Int {
+        assert(assignments.contains(variable))
+        return assignments[variable]!.count
+    }
+    
+    /// Returns the number of instructions using the given variable.
     func numUses(of variable: Variable) -> Int {
-        precondition(uses.contains(variable))
+        assert(uses.contains(variable))
         return uses[variable]!.count
     }
 }
 
 /// Keeps track of currently visible variables during program construction.
 struct ScopeAnalyzer: Analyzer {
-    var scopes = [[Variable]()]
-    var visibleVariables = [Variable]()
-    
-    var outerVisibleVariables: ArraySlice<Variable> {
-        let end = visibleVariables.count - scopes.last!.count
-        return visibleVariables[0..<end]
-    }
-    
+    private(set) var scopes = [[Variable]()]
+    private(set) var visibleVariables = [Variable]()
+
     mutating func analyze(_ instr: Instruction) {
         // Scope management (1).
         if instr.isBlockEnd {
@@ -93,16 +116,16 @@ struct ScopeAnalyzer: Analyzer {
             let current = scopes.removeLast()
             visibleVariables.removeLast(current.count)
         }
-        
+
         scopes[scopes.count - 1].append(contentsOf: instr.outputs)
         visibleVariables.append(contentsOf: instr.outputs)
-        
+
         // Scope management (2). Happens here since e.g. function definitions create a variable in the outer scope.
         // This code has to be somewhat careful since e.g. BeginElse both ends and begins a variable scope.
         if instr.isBlockBegin {
             scopes.append([])
         }
-        
+
         scopes[scopes.count - 1].append(contentsOf: instr.innerOutputs)
         visibleVariables.append(contentsOf: instr.innerOutputs)
     }
@@ -110,42 +133,24 @@ struct ScopeAnalyzer: Analyzer {
 
 /// Keeps track of the current context during program construction.
 struct ContextAnalyzer: Analyzer {
-    /// Current context in the program
-    struct Context: OptionSet {
-        let rawValue: Int
-        
-        // Outer scope, default context
-        static let global     = Context(rawValue: 0)
-        // Inside a function definition
-        static let inFunction = Context(rawValue: 1 << 0)
-        // Inside a loop
-        static let inLoop     = Context(rawValue: 1 << 1)
-        // Inside a with statement
-        static let inWith     = Context(rawValue: 1 << 2)
-    }
-    
-    private var contextStack = [Context.global]
+    private var contextStack = [Context.script]
     
     var context: Context {
         return contextStack.last!
     }
-    
+
     mutating func analyze(_ instr: Instruction) {
-        if instr.isLoopEnd ||
-            instr.operation is EndFunctionDefinition ||
-            instr.operation is EndWith {
-            _ = contextStack.popLast()
-        } else if instr.isLoopBegin {
-            contextStack.append([context, .inLoop])
-        } else if instr.operation is BeginFunctionDefinition {
-            // Not in a loop or with statement anymore.
-            let newContext = context.subtracting([.inLoop, .inWith]).union(.inFunction)
+        if instr.isBlockEnd {
+            contextStack.removeLast()
+        }
+        if instr.isBlockBegin {
+            var newContext = instr.op.contextOpened
+            if instr.propagatesSurroundingContext {
+                newContext.formUnion(context)
+            }
             contextStack.append(newContext)
-        } else if instr.operation is BeginWith {
-            contextStack.append([context, .inWith])
         }
     }
-    
 }
 
 /// Determines whether code after the current instruction is dead code (i.e. can never be executed).

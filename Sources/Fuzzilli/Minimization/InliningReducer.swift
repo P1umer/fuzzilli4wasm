@@ -13,32 +13,29 @@
 // limitations under the License.
 
 /// Inlines functions at their callsite if possible to prevent deep nesting of functions.
+///
+/// This attempts to inline all types of functions, including generators and async functions. Often,
+/// this won't result in semantically valid JavaScript, but since we check the program for validity
+/// after every inlining attempt, that should be fine.
 struct InliningReducer: Reducer {
-    var remaining = [Variable]()
-    private let fuzzer: Fuzzer
-    
-    init(_ fuzzer: Fuzzer) {
-        self.fuzzer = fuzzer
-    }
-    
-    func reduce(_ program: Program, with verifier: ReductionVerifier) -> Program {
+    func reduce(_ code: inout Code, with verifier: ReductionVerifier) {
         var functions = [Variable]()
         var candidates = VariableMap<Int>()
         var stack = [Variable]()
-        for instr in program {
-            switch instr.operation {
-            case is BeginFunctionDefinition:
+        for instr in code {
+            switch instr.op {
+            case is BeginAnyFunctionDefinition:
                 functions.append(instr.output)
                 candidates[instr.output] = 0
                 stack.append(instr.output)
-            case is EndFunctionDefinition:
+            case is EndAnyFunctionDefinition:
                 stack.removeLast()
             case is CallFunction:
                 let f = instr.input(0)
                 
                 // Can't inline recursive calls
                 if stack.contains(f) {
-                    candidates.remove(f)
+                    candidates.removeValue(forKey: f)
                 }
                 
                 if let callCount = candidates[f] {
@@ -46,62 +43,72 @@ struct InliningReducer: Reducer {
                 }
 
                 for v in instr.inputs.dropFirst() {
-                    candidates.remove(v)
+                    candidates.removeValue(forKey: v)
                 }
             default:
                 for v in instr.inputs {
-                    candidates.remove(v)
+                    candidates.removeValue(forKey: v)
                 }
             }
         }
-        
-        var current = program
+
         for f in functions {
             if candidates.contains(f) && candidates[f] == 1 {
                 // Try inlining the function
-                let newProgram = inline(f, in: current)
-                if verifier.test(newProgram) {
-                    current = newProgram
+                let newCode = inline(f, in: code)
+                // Must normalize (a copy of) the code before attempting to execute it.
+                if verifier.test(newCode.normalized()) {
+                    code = newCode
                 }
             }
         }
-        
-        return current
+
+        // Must normalize the code now as variable numbers are no longer in ascending order.
+        // We can only do this now, after performing all inline() calls, as otherwise the variables
+        // might get renamed in between calls to inline(), which would invalidate the |functions|
+        // list as the variables stored in it would suddenly refer to different values.
+        code.normalize()
+        assert(code.isStaticallyValid())
     }
-    
-    func inline(_ function: Variable, in program: Program) -> Program {
-        let b = fuzzer.makeBuilder()
-        
+
+    /// Inlines the given function into its callsite. The given function variable must be the output of a function definition instruction and it
+    /// must be called exactly once in the provided code. Returns a new code object with the function inlined. Important: the returned code
+    /// is not normalized. In particular, variables will not be defined in sequential order and some variables may not be defined at all.
+    /// The caller is responsible for normalizing the code after inlining.
+    func inline(_ function: Variable, in code: Code) -> Code {
+        var c = Code()
         var i = 0
-        
-        while i < program.size {
-            let instr = program[i]
-            
-            if instr.numOutputs > 0 && instr.output == function {
-                assert(instr.operation is BeginFunctionDefinition)
+
+        while i < code.count {
+            let instr = code[i]
+
+            if instr.numOutputs == 1 && instr.output == function {
+                assert(instr.op is BeginAnyFunctionDefinition)
                 break
             }
-            
-            b.append(instr)
-            
+
+            c.append(instr)
+
             i += 1
         }
-        
-        let funcDefinition = program[i]
+
+        assert(i < code.count)
+
+        let funcDefinition = code[i]
         let parameters = Array(funcDefinition.innerOutputs)
-        
+
         i += 1
-        
+
         // Fast-forward to end of function definition
         var functionBody = [Instruction]()
         var depth = 0
-        while i < program.size {
-            let instr = program[i]
-            
-            if instr.operation is BeginFunctionDefinition {
+        while i < code.count {
+            let instr = code[i]
+
+            if instr.op is BeginAnyFunctionDefinition {
                 depth += 1
             }
-            if instr.operation is EndFunctionDefinition {
+            if instr.op is EndAnyFunctionDefinition {
                 if depth == 0 {
                     i += 1
                     break
@@ -109,36 +116,36 @@ struct InliningReducer: Reducer {
                     depth -= 1
                 }
             }
-            
+
             functionBody.append(instr)
-            
+
             i += 1
         }
-        
-        assert(i < program.size)
-        
+
+        assert(i < code.count)
+
         // Search for the call of the function
-        while i < program.size {
-            let instr = program[i]
-            
-            if instr.operation is CallFunction && instr.input(0) == function {
+        while i < code.count {
+            let instr = code[i]
+
+            if instr.op is CallFunction && instr.input(0) == function {
                 break
             }
-            
+
             assert(!instr.inputs.contains(function))
-            
-            b.append(instr)
+
+            c.append(instr)
             i += 1
         }
-        
+
         // Found it. Inline the function now
-        let call = program[i]
-        
+        let call = code[i]
+
         // Reuse the function variable to store 'undefined' and use that as
         // initial value of the return variable and for missing arguments.
         let undefined = funcDefinition.output
-        b.append(Instruction(operation: LoadUndefined(), output: undefined))
-        
+        c.append(Instruction(LoadUndefined(), output: undefined))
+
         var arguments = VariableMap<Variable>()
         for (i, v) in parameters.enumerated() {
             if call.numInputs - 1 > i {
@@ -147,33 +154,31 @@ struct InliningReducer: Reducer {
                 arguments[v] = undefined
             }
         }
-        
+
         let rval = call.output
-        b.append(Instruction(operation: Phi(), output: rval, inputs: [undefined]))
+        c.append(Instruction(LoadUndefined(), output: rval, inputs: []))
 
         for instr in functionBody {
-            let fixedInouts = instr.inouts.map { arguments[$0] ?? $0 }
-            let fixedInstr = Instruction(operation: instr.operation, inouts: fixedInouts)
+            let newInouts = instr.inouts.map { arguments[$0] ?? $0 }
+            let newInstr = Instruction(instr.op, inouts: newInouts)
             
             // Return is converted to an assignment to the return value
-            if instr.operation is Return {
-                b.copy(fixedInstr.input(0), to: rval)
+            if instr.op is Return {
+                c.append(Instruction(Reassign(), inputs: [rval, newInstr.input(0)]))
             } else {
-                b.append(fixedInstr)
+                c.append(newInstr)
             }
         }
-        
+
         i += 1
-        
+
         // Copy remaining instructions
-        while i < program.size {
-            assert(!program[i].inputs.contains(function))
-            b.append(program[i])
+        while i < code.count {
+            assert(!code[i].inputs.contains(function))
+            c.append(code[i])
             i += 1
         }
-        
-        let result = b.finish()
-        assert(result.check() == .valid)
-        return result
+
+        return c
     }
 }

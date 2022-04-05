@@ -13,7 +13,7 @@
 // limitations under the License.
 
 /// Lifts a FuzzIL program to the target language.
-public protocol Lifter: Component {
+public protocol Lifter {
     func lift(_ program: Program, withOptions options: LiftingOptions) -> String
 }
 
@@ -29,6 +29,8 @@ public struct LiftingOptions: OptionSet {
         self.rawValue = rawValue
     }
     
-    // If enabled, type information for variables will be emitted in comments.
-    public static let dumpTypes    = LiftingOptions(rawValue: 1 << 0)
+    public static let dumpTypes = LiftingOptions(rawValue: 1 << 0)
+    public static let minify = LiftingOptions(rawValue: 1 << 1)
+    public static let collectTypes = LiftingOptions(rawValue: 1 << 2)
+    public static let includeComments = LiftingOptions(rawValue: 1 << 3)
 }

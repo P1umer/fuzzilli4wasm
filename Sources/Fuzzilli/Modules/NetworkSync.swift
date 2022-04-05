@@ -14,6 +14,8 @@
 
 import Foundation
 import libsocket
+// Explicitly import `Foundation.UUID` to avoid the conflict with `WinSDK.UUID`
+import struct Foundation.UUID
 
 /// Module for synchronizing over the network.
 ///
@@ -64,101 +66,130 @@ enum MessageType: UInt32 {
     case log            = 7
 }
 
-/// Payload of an identification message.
-fileprivate struct Identification: Codable {
-    // The UUID of the worker
-    let workerId: UUID
-}
-
-/// Payload of a log message.
-fileprivate struct LogMessage: Codable {
-    let creator: UUID
-    let level: Int
-    let label: String
-    let content: String
-}
-
 fileprivate let messageHeaderSize = 8
 fileprivate let maxMessageSize = 1024 * 1024 * 1024
 
 /// Protocol for an object capable of receiving messages.
 protocol MessageHandler {
     func handleMessage(_ payload: Data, ofType type: MessageType, from connection: Connection)
-    func handleError(on connection: Connection)
+    func handleError(_ err: String, on connection: Connection)
+    // The fuzzer instance on which to schedule the handler calls
+    var fuzzer: Fuzzer { get }
 }
 
 /// A connection to a network peer that speaks the above protocol.
 class Connection {
-    /// File descriptor of the socket.
-    let socket: Int32
+    /// The file descriptor on POSIX or SOCKET handle on Windows of the socket.
+    let socket: libsocket.socket_t
     
-    /// Logger for this connection.
-    private let logger: Logger
+    // Whether this connection has been closed.
+    private(set) var closed = false
     
     /// Message handler to which incoming messages are delivered.
     private let handler: MessageHandler
     
-    /// OperationQueue on which messages will be received and handlers invoked.
-    private let queue: OperationQueue
+    /// DispatchQueue on which data is sent to and received from the socket.
+    private let queue: DispatchQueue
     
     /// DispatchSource to trigger when data is available.
-    private var readSource: OperationSource? = nil
+    private var readSource: DispatchSourceRead? = nil
     
     /// DispatchSource to trigger when data can be sent.
-    private var writeSource: OperationSource? = nil
+    private var writeSource: DispatchSourceWrite? = nil
     
-    /// Buffer for incoming messages.
+    /// Buffer for incoming messages. Must only be accessed on this connection's dispatch queue.
     private var currentMessageData = Data()
     
-    /// Buffer to receive incoming data into.
-    private var receiveBuffer = [UInt8](repeating: 0, count: 1024 * 1024)
+    /// Buffer to receive incoming data into. Must only be accessed on this connection's dispatch queue.
+    private var receiveBuffer = UnsafeMutableBufferPointer<UInt8>.allocate(capacity: 1024*1024)
     
-    /// Pending outgoing data.
+    /// Pending outgoing data. Must only be accessed on this connection's dispatch queue.
     private var sendQueue: [Data] = []
     
-    init(socket: Int32, handler: MessageHandler, fuzzer: Fuzzer) {
+    init(socket: libsocket.socket_t, handler: MessageHandler) {
         self.socket = socket
         self.handler = handler
-        self.logger = fuzzer.makeLogger(withLabel: "Connection \(socket)")
-        self.queue = fuzzer.queue
-        
-        self.readSource = OperationSource.forReading(from: socket, on: fuzzer.queue) { [weak self] in
+        self.queue = DispatchQueue(label: "Socket \(socket)")
+
+#if os(Windows)
+        self.readSource = DispatchSource.makeReadSource(handle: HANDLE(bitPattern: UInt(socket))!, queue: self.queue)
+#else
+        self.readSource = DispatchSource.makeReadSource(fileDescriptor: socket, queue: self.queue)
+#endif
+        self.readSource?.setEventHandler { [weak self] in
             self?.handleDataAvailable()
         }
+        self.readSource?.activate()
     }
     
     deinit {
         libsocket.socket_close(socket)
+        receiveBuffer.deallocate()
     }
-    
+
+    /// Closes this connection.
+    /// This does not need to be called after receiving an error, as in that case the connection will already have been closed.
     func close() {
-        readSource?.cancel()
-        writeSource?.cancel()
+        self.queue.sync {
+            self.internalClose()
+        }
     }
-    
+
+    /// Cancels the read and write sources and shuts down the socket.
+    private func internalClose() {
+        dispatchPrecondition(condition: .onQueue(queue))
+
+        readSource?.cancel()
+        readSource = nil
+        writeSource?.cancel()
+        writeSource = nil
+
+        if !closed {
+            libsocket.socket_shutdown(socket)
+            closed = true
+        }
+    }
+
     /// Send a message.
     ///
-    /// This will either send the message immediately or queue for delivery
-    /// once the remote peer can accept more data.
-    func sendMessage(_ data: Data, ofType type: MessageType) {
+    /// This will queue the given data for delivery as soon as the remote peer can accept more data.
+    func sendMessage(_ data: Data, ofType type: MessageType, syncWith group: DispatchGroup? = nil) {
+        dispatchPrecondition(condition: .notOnQueue(queue))
+        group?.enter()
+        self.queue.async {
+            self.internalSendMessage(data, ofType: type)
+
+            // Note: this isn't completely correct since the data might have to be queue. But it should be good enough...
+            group?.leave()
+        }
+    }
+
+    private func internalSendMessage(_ data: Data, ofType type: MessageType) {
+        dispatchPrecondition(condition: .onQueue(queue))
+
+        guard !closed else {
+            return error("Attempted to send data on a closed connection")
+        }
         guard data.count + messageHeaderSize <= maxMessageSize else {
-            return logger.error("Message too large to be sent (\(data.count + messageHeaderSize)B). Discarding")
+            return error("Message too large to send (\(data.count + messageHeaderSize)B)")
         }
         
         var length = UInt32(data.count + messageHeaderSize).littleEndian
         var type = type.rawValue.littleEndian
-        let padding = Data(repeating: 0, count: self.paddingLength(for: Int(length)))
-   
+        let padding = Data(repeating: 0, count: align(Int(length), to: 4))
+
         // We are careful not to copy the passed data here
         self.sendQueue.append(Data(bytes: &length, count: 4))
         self.sendQueue.append(Data(bytes: &type, count: 4))
         self.sendQueue.append(data)
         self.sendQueue.append(padding)
-        
+
         self.sendPendingData()
     }
-    
+
     private func sendPendingData() {
+        dispatchPrecondition(condition: .onQueue(queue))
+
         var i = 0
         while i < sendQueue.count {
             let chunk = sendQueue[i]
@@ -170,13 +201,7 @@ class Connection {
             }
             
             if rv < 0 {
-                // Network error. We'll notify our client through handleDataAvailable though.
-                // That way we can deliver any data that's still pending at this point.
-                // Note (probably) this doesn't work correctly if the remote end just closes
-                // the socket in one direction, but that shouldn't happen in our implementation ...
-                sendQueue.removeAll()
-                writeSource?.cancel()
-                return
+                return error("Failed to send data")
             } else if rv != length {
                 assert(rv < length)
                 // Only managed to send part of the data. Requeue the rest.
@@ -191,52 +216,58 @@ class Connection {
         // Remove all chunks that were successfully sent
         sendQueue.removeFirst(i)
         
-        // If we were able to sent all chunks, remove the writer source
+        // If we were able to send all chunks, remove the writer source
         if sendQueue.isEmpty {
             writeSource?.cancel()
             writeSource = nil
         } else if writeSource == nil {
             // Otherwise ensure we have an active write source to notify us when the next chunk can be sent
-            self.writeSource = OperationSource.forWriting(to: socket, on: queue) { [weak self] in
+#if os(Windows)
+            writeSource = DispatchSource.makeWriteSource(handle: HANDLE(bitPattern: UInt(socket))!, queue: self.queue)
+#else
+            writeSource = DispatchSource.makeWriteSource(fileDescriptor: socket, queue: self.queue)
+#endif
+            writeSource?.setEventHandler { [weak self] in
                 self?.sendPendingData()
             }
+            writeSource?.activate()
         }
     }
-    
+
     private func handleDataAvailable() {
+        dispatchPrecondition(condition: .onQueue(queue))
+
         // Receive all available data
-        var receivedData = Data()
-        while true {
-            let bytesRead = read(socket, UnsafeMutablePointer<UInt8>(&receiveBuffer), receiveBuffer.count)
-            guard bytesRead > 0 else {
-                break
+        var numBytesRead = 0
+        var gotData = false
+        repeat {
+            numBytesRead = socket_recv(socket, receiveBuffer.baseAddress, receiveBuffer.count)
+            if numBytesRead > 0 {
+                gotData = true
+                currentMessageData.append(receiveBuffer.baseAddress!, count: numBytesRead)
             }
-            receivedData.append(UnsafeMutablePointer<UInt8>(&receiveBuffer), count: Int(bytesRead))
-        }
+        } while numBytesRead > 0
         
-        guard receivedData.count > 0 else {
+        guard gotData else {
             // We got a read event but no data was available so the remote end must have closed the connection.
-            return error()
+            return error("Connection closed by peer")
         }
-        
-        currentMessageData.append(receivedData)
-        
+                
         // ... and process it
         while currentMessageData.count >= messageHeaderSize {
             let length = Int(readUint32(from: currentMessageData, atOffset: 0))
             
             guard length <= maxMessageSize && length >= messageHeaderSize else {
                 // For now we just close the connection if an invalid message is received.
-                logger.warning("Received message with invalid length. Closing connection.")
-                return error()
+                return error("Received message with invalid length")
             }
             
-            let totalMessageLength = length + paddingLength(for: length)
+            let totalMessageLength = length + align(length, to: 4)
             guard totalMessageLength <= currentMessageData.count else {
                 // Not enough data available right now. Wait until next packet is received.
                 break
             }
-            
+
             let message = Data(currentMessageData.prefix(length))
             // Explicitely make a copy of the data here so the discarded data is also freed from memory
             currentMessageData = currentMessageData.subdata(in: totalMessageLength..<currentMessageData.count)
@@ -244,40 +275,38 @@ class Connection {
             let type = readUint32(from: message, atOffset: 4)
             if let type = MessageType(rawValue: type) {
                 let payload = message.suffix(from: messageHeaderSize)
-                handler.handleMessage(payload, ofType: type, from: self)
+                handler.fuzzer.async {
+                    self.handler.handleMessage(payload, ofType: type, from: self)
+                }
             } else {
-                logger.warning("Received message with invalid type. Closing connection.")
-                return error()
+                return error("Received message with invalid type")
             }
         }
     }
-    
-    // Handle an error: close our connection and inform our handler.
-    private func error() {
-        close()
-        handler.handleError(on: self)
+
+    /// Handle an error: close the connection and inform our handler.
+    /// Must execute on the connection's dispatch queue.
+    private func error(_ err: String = "") {
+        internalClose()
+        handler.fuzzer.async {
+            self.handler.handleError(err, on: self)
+        }
     }
     
-    // Helper function to unpack a little-endian, 32-bit unsigned integer from a data packet.
+    /// Helper function to unpack a little-endian, 32-bit unsigned integer from a data packet.
     private func readUint32(from data: Data, atOffset offset: Int) -> UInt32 {
         assert(offset >= 0 && data.count >= offset + 4)
         let value = data.withUnsafeBytes { $0.load(fromByteOffset: offset, as: UInt32.self) }
         return UInt32(littleEndian: value)
     }
-    
-    // Compute the number of padding bytes for the given message size.
-    private func paddingLength(for messageSize: Int) -> Int {
-        let remainder = messageSize % 4
-        return remainder == 0 ? 0 : 4 - remainder
-    }
 }
 
 public class NetworkMaster: Module, MessageHandler {
-    /// File descriptor of the server socket.
-    private var serverFd: Int32 = -1
+    /// File descriptor or SOCKET handle of the server socket.
+    private var serverFd: libsocket.socket_t = INVALID_SOCKET
     
     /// Associated fuzzer.
-    private unowned let fuzzer: Fuzzer
+    unowned let fuzzer: Fuzzer
     
     /// Logger for this module.
     private let logger: Logger
@@ -286,48 +315,69 @@ public class NetworkMaster: Module, MessageHandler {
     let address: String
     let port: UInt16
     
-    /// Operation source to trigger when a new client connection is available.
-    private var connectionSource: OperationSource? = nil
+    /// Dispatch source to trigger when a new client connection is available.
+    private var connectionSource: DispatchSourceRead? = nil
+    /// DispatchQueue on which to accept client connections
+    private var serverQueue: DispatchQueue? = nil
     
     /// Active workers. The key is the socket filedescriptor number.
-    private var workers = [Int32: Worker]()
+    private var workers = [libsocket.socket_t: Worker]()
     
     /// Since fuzzer state can grow quite large (> 100MB) and takes long to serialize,
     /// we cache the serialized state for a short time.
     private var cachedState = Data()
     private var cachedStateCreationTime = Date.distantPast
-    
+
     public init(for fuzzer: Fuzzer, address: String, port: UInt16) {
         self.fuzzer = fuzzer
-        self.logger = fuzzer.makeLogger(withLabel: "NetworkMaster")
+        self.logger = Logger(withLabel: "NetworkMaster")
         self.address = address
         self.port = port
     }
     
     public func initialize(with fuzzer: Fuzzer) {
+        assert(self.fuzzer === fuzzer)
+
         self.serverFd = libsocket.socket_listen(address, port)
         guard serverFd > 0 else {
             logger.fatal("Failed to open server socket")
         }
         
-        connectionSource = OperationSource.forReading(from: serverFd, on: fuzzer.queue, block: handleNewConnection)
+        self.serverQueue = DispatchQueue(label: "Server Queue \(serverFd)")
+#if os(Windows)
+        self.connectionSource = DispatchSource.makeReadSource(handle: HANDLE(bitPattern: UInt(serverFd))!, queue: serverQueue)
+#else
+        self.connectionSource = DispatchSource.makeReadSource(fileDescriptor: serverFd, queue: serverQueue)
+#endif
+        self.connectionSource?.setEventHandler {
+            let socket = libsocket.socket_accept(self.serverFd)
+            fuzzer.async {
+                self.handleNewConnection(socket)
+            }
+        }
+        connectionSource?.activate()
         
         logger.info("Accepting worker connections on \(address):\(port)")
         
-        fuzzer.events.Shutdown.observe {
+        fuzzer.registerEventListener(for: fuzzer.events.Shutdown) { _ in
+            let shutdownGroup = DispatchGroup()
             for worker in self.workers.values {
-                worker.conn.sendMessage(Data(), ofType: .shutdown)
+                worker.conn.sendMessage(Data(), ofType: .shutdown, syncWith: shutdownGroup)
             }
+            // Attempt to make sure that the shutdown messages have been sent before continuing.
+            let _ = shutdownGroup.wait(timeout: .now() + .seconds(5))
         }
-        
-        // Only start sending interesting programs after a short delay to not spam the workers too much.
-        fuzzer.timers.runAfter(10 * Minutes) {
-            fuzzer.events.InterestingProgramFound.observe { ev in
-                let encoder = JSONEncoder()
-                let data = try! encoder.encode(ev.program)
-                for worker in self.workers.values {
-                    worker.conn.sendMessage(data, ofType: .program)
-                }
+
+        fuzzer.registerEventListener(for: fuzzer.events.InterestingProgramFound) { ev in
+            let proto = ev.program.asProtobuf()
+            guard let data = try? proto.serializedData() else {
+                return self.logger.error("Failed to serialize program")
+            }
+            for worker in self.workers.values {
+                guard let workerId = worker.id else { continue }
+                // Don't send programs back to where they came from originally
+                if case .worker(let id) = ev.origin, id == workerId { continue }
+                worker.conn.sendMessage(data, ofType: .program)
             }
         }
         
@@ -339,28 +389,25 @@ public class NetworkMaster: Module, MessageHandler {
         }
     }
     
-    func handleNewConnection() {
-        let clientFd = libsocket.socket_accept(serverFd)
-        guard clientFd > 0 else {
-            return logger.error("Failed to accept client connection")
-        }
-        
-        let worker = Worker(conn: Connection(socket: clientFd, handler: self, fuzzer: fuzzer), id: nil, connectionTime: Date())
-        workers[clientFd] = worker
-        
-        // TODO should have some address information here.
-        logger.info("New worker connected")
-    }
-    
     func handleMessage(_ payload: Data, ofType type: MessageType, from connection: Connection) {
         if let worker = workers[connection.socket] {
             handleMessageInternal(payload, ofType: type, from: worker)
         }
     }
+
+    private func handleNewConnection(_ socket: libsocket.socket_t) {
+        guard socket > 0 else {
+            return logger.error("Failed to accept client connection")
+        }
+        
+        let worker = Worker(conn: Connection(socket: socket, handler: self), id: nil, connectionTime: Date())
+        workers[socket] = worker
+        
+        // TODO should have some address information here.
+        logger.info("New worker connected")
+    }
     
     private func handleMessageInternal(_ payload: Data, ofType type: MessageType, from worker: Worker) {
-        let decoder = JSONDecoder()
-        
         // Workers must identify themselves first.
         if type != .identify && worker.id == nil {
             logger.warning("Received message from unidentified worker. Closing connection...")
@@ -373,33 +420,33 @@ public class NetworkMaster: Module, MessageHandler {
             
         case .shutdown:
             if let id = worker.id {
-                logger.info("Worker \(id) disconnected")
+                logger.info("Worker \(id) shut down")
             }
             disconnect(worker)
             
         case .identify:
-            if let msg = try? decoder.decode(Identification.self, from: payload) {
+            if let proto = try? Fuzzilli_Protobuf_Identification(serializedData: payload), let uuid = UUID(uuidData: proto.uuid) {
                 if worker.id != nil {
                     logger.warning("Received multiple identification messages from client. Ignoring message")
                     break
                 }
-                workers[worker.conn.socket] = Worker(conn: worker.conn, id: msg.workerId, connectionTime: worker.connectionTime)
+                workers[worker.conn.socket] = Worker(conn: worker.conn, id: uuid, connectionTime: worker.connectionTime)
                 
-                logger.info("Worker identified as \(msg.workerId)")
-                fuzzer.events.WorkerConnected.dispatch(with: msg.workerId)
+                logger.info("Worker identified as \(uuid)")
+                fuzzer.dispatchEvent(fuzzer.events.WorkerConnected, data: uuid)
                 
                 // Send our fuzzing state to the worker
                 let now = Date()
                 if cachedState.isEmpty || now.timeIntervalSince(cachedStateCreationTime) > 15 * Minutes {
                     // No cached state or it is too old
-                    let state = fuzzer.exportState()
-                    let encoder = JSONEncoder()
-                    
-                    let (data, duration) = measureTime { try! encoder.encode(state) }
-                    logger.info("Encoding fuzzer state took \((String(format: "%.2f", duration)))s. Data size: \(ByteCountFormatter.string(fromByteCount: Int64(data.count), countStyle: .memory))")
-                    
-                    cachedState = data
-                    cachedStateCreationTime = now
+                    let (maybeState, duration) = measureTime { try? fuzzer.exportState() }
+                    if let state = maybeState {
+                        logger.info("Encoding fuzzer state took \((String(format: "%.2f", duration)))s. Data size: \(ByteCountFormatter.string(fromByteCount: Int64(state.count), countStyle: .memory))")
+                        cachedState = state
+                        cachedStateCreationTime = now
+                    } else {
+                        logger.error("Failed to export fuzzer state")
+                    }
                 }
                 worker.conn.sendMessage(cachedState, ofType: .sync)
             } else {
@@ -407,22 +454,25 @@ public class NetworkMaster: Module, MessageHandler {
             }
             
         case .crash:
-            if let program = try? decoder.decode(Program.self, from: payload) {
-                fuzzer.importCrash(program)
-            } else {
-                logger.warning("Received malformed program from worker")
+            do {
+                let proto = try Fuzzilli_Protobuf_Program(serializedData: payload)
+                let program = try Program(from: proto)
+                fuzzer.importCrash(program, origin: .worker(id: worker.id!))
+            } catch {
+                logger.warning("Received malformed program from worker: \(error)")
             }
             
         case .program:
-            if let program = try? decoder.decode(Program.self, from: payload) {
-                fuzzer.importProgram(program)
-            } else {
-                logger.warning("Received malformed program from worker")
+            do {
+                let proto = try Fuzzilli_Protobuf_Program(serializedData: payload)
+                let program = try Program(from: proto)
+                fuzzer.importProgram(program, enableDropout: false, origin: .worker(id: worker.id!))
+            } catch {
+                logger.warning("Received malformed program from worker: \(error)")
             }
             
         case .statistics:
-            let decoder = JSONDecoder()
-            if let data = try? decoder.decode(Statistics.Data.self, from: payload) {
+            if let data = try? Fuzzilli_Protobuf_Statistics(serializedData: payload) {
                 if let stats = Statistics.instance(for: fuzzer) {
                     stats.importData(data, from: worker.id!)
                 }
@@ -431,9 +481,10 @@ public class NetworkMaster: Module, MessageHandler {
             }
             
         case .log:
-            let decoder = JSONDecoder()
-            if let msg = try? decoder.decode(LogMessage.self, from: payload), let level = LogLevel(rawValue: msg.level) {
-                fuzzer.events.Log.dispatch(with: (creator: msg.creator, level: level, label: msg.label, message: msg.content))
+            if let proto = try? Fuzzilli_Protobuf_LogMessage(serializedData: payload),
+                let origin = UUID(uuidString: proto.origin),
+                let level = LogLevel(rawValue: Int(clamping: proto.level)) {
+                fuzzer.dispatchEvent(fuzzer.events.Log, data: (origin: origin, level: level, label: proto.label, message: proto.content))
             } else {
                 logger.warning("Received malformed log message data from worker")
             }
@@ -443,8 +494,10 @@ public class NetworkMaster: Module, MessageHandler {
         }
     }
     
-    func handleError(on connection: Connection) {
+    func handleError(_ err: String, on connection: Connection) {
+        // In case the worker isn't known, we probably already disconnected it, so there's nothing to do.
         if let worker = workers[connection.socket] {
+            logger.warning("Error on connection \(connection.socket): \(err). Disconnecting client.")
             if let id = worker.id {
                 let activeSeconds = Int(-worker.connectionTime.timeIntervalSinceNow)
                 let activeMinutes = activeSeconds / 60
@@ -459,7 +512,7 @@ public class NetworkMaster: Module, MessageHandler {
         worker.conn.close()
         if let id = worker.id {
             // If the id is nil then the worker never registered, so no need to deregister it internally
-            fuzzer.events.WorkerDisconnected.dispatch(with: id)
+            fuzzer.dispatchEvent(fuzzer.events.WorkerDisconnected, data: id)
         }
         workers.removeValue(forKey: worker.conn.socket)
     }
@@ -478,7 +531,7 @@ public class NetworkMaster: Module, MessageHandler {
 
 public class NetworkWorker: Module, MessageHandler {
     /// Associated fuzzer.
-    private unowned let fuzzer: Fuzzer
+    unowned let fuzzer: Fuzzer
     
     /// Logger for this module.
     private let logger: Logger
@@ -492,37 +545,41 @@ public class NetworkWorker: Module, MessageHandler {
     /// Indicates whether the corpus has been synchronized with the master yet.
     private var synchronized = false
     
-    /// Number of programs already imported from the master.
-    private var syncPosition = 0
-    
     /// Used when receiving a shutdown message from the master to avoid sending it further data.
     private var masterIsShuttingDown = false
     
     /// Connection to the master instance.
     private var conn: Connection! = nil
-    
+
     public init(for fuzzer: Fuzzer, hostname: String, port: UInt16) {
         self.fuzzer = fuzzer
-        self.logger = fuzzer.makeLogger(withLabel: "NetworkWorker")
+        self.logger = Logger(withLabel: "NetworkWorker")
         self.masterHostname = hostname
         self.masterPort = port
     }
     
     public func initialize(with fuzzer: Fuzzer) {
+        assert(self.fuzzer === fuzzer)
+
         connect()
         
-        fuzzer.events.CrashFound.observe { ev in
+        fuzzer.registerEventListener(for: fuzzer.events.CrashFound) { ev in
             self.sendProgram(ev.program, type: .crash)
         }
         
-        fuzzer.events.Shutdown.observe {
+        fuzzer.registerEventListener(for: fuzzer.events.Shutdown) { _ in
             if !self.masterIsShuttingDown {
-                self.conn.sendMessage(Data(), ofType: .shutdown)
+                let shutdownGroup = DispatchGroup()
+                self.conn.sendMessage(Data(), ofType: .shutdown, syncWith: shutdownGroup)
+                // Attempt to make sure that the shutdown messages have been sent before continuing.
+                let _ = shutdownGroup.wait(timeout: .now() + .seconds(5))
             }
         }
         
-        fuzzer.events.InterestingProgramFound.observe { ev in
+        fuzzer.registerEventListener(for: fuzzer.events.InterestingProgramFound) { ev in
             if self.synchronized {
+                // If the program came from the master instance, don't send it back to it :)
+                if case .master = ev.origin { return }
                 self.sendProgram(ev.program, type: .program)
             }
         }
@@ -530,19 +587,22 @@ public class NetworkWorker: Module, MessageHandler {
         // Regularly send local statistics to the master.
         if let stats = Statistics.instance(for: fuzzer) {
             fuzzer.timers.scheduleTask(every: 1 * Minutes) {
-                let encoder = JSONEncoder()
                 let data = stats.compute()
-                if let payload = try? encoder.encode(data) {
+                if let payload = try? data.serializedData() {
                     self.conn.sendMessage(payload, ofType: .statistics)
                 }
             }
         }
         
         // Forward log events to the master.
-        fuzzer.events.Log.observe { ev in
-            let msg = LogMessage(creator: ev.creator, level: ev.level.rawValue, label: ev.label, content: ev.message)
-            let encoder = JSONEncoder()
-            let payload = try! encoder.encode(msg)
+        fuzzer.registerEventListener(for: fuzzer.events.Log) { ev in
+            let msg = Fuzzilli_Protobuf_LogMessage.with {
+                $0.origin = ev.origin.uuidString
+                $0.level = UInt32(ev.level.rawValue)
+                $0.label = ev.label
+                $0.content = ev.message
+            }
+            let payload = try! msg.serializedData()
             self.conn.sendMessage(payload, ofType: .log)
         }
         
@@ -556,8 +616,6 @@ public class NetworkWorker: Module, MessageHandler {
     }
     
     func handleMessage(_ payload: Data, ofType type: MessageType, from connection: Connection) {
-        let decoder = JSONDecoder()
-        
         switch type {
         case .keepalive:
             break
@@ -565,30 +623,31 @@ public class NetworkWorker: Module, MessageHandler {
         case .shutdown:
             logger.info("Master is shutting down. Stopping this worker...")
             masterIsShuttingDown = true
-            self.fuzzer.stop()
+            self.fuzzer.shutdown(reason: .masterShutdown)
             
         case .program:
-            if let program = try? decoder.decode(Program.self, from: payload) {
-                fuzzer.importProgram(program, withDropout: true)
-            } else {
-                logger.error("Received malformed program from master")
+            do {
+                let proto = try Fuzzilli_Protobuf_Program(serializedData: payload)
+                let program = try Program(from: proto)
+                // Dropout can, if enabled in the fuzzer config, help workers become more independent
+                // from the rest of the fuzzers by forcing them to rediscover edges in different ways.
+                fuzzer.importProgram(program, enableDropout: true, origin: .master)
+            } catch {
+                logger.warning("Received malformed program from worker")
             }
             
         case .sync:
-            let decoder = JSONDecoder()
-            let (maybeState, duration) = measureTime { try? decoder.decode(Fuzzer.State.self, from: payload) }
-            if let state = maybeState {
-                logger.info("Decoding fuzzer state took \((String(format: "%.2f", duration)))s")
-                do {
-                    try fuzzer.importState(state)
-                    logger.info("Synchronized with master. Corpus contains \(fuzzer.corpus.size) programs")
-                    
-                } catch {
-                    logger.error("Failed to import state from master: \(error.localizedDescription)")
-                }
-            } else {
-                logger.error("Received malformed sync packet from master")
+            let start = Date()
+            
+            do {
+                try fuzzer.importState(from: payload)
+            } catch {
+                logger.error("Failed to import state from master: \(error)")
             }
+            
+            let end = Date()
+            logger.info("Decoding fuzzer state took \((String(format: "%.2f", end.timeIntervalSince(start))))s")
+            logger.info("Synchronized with master. Corpus contains \(fuzzer.corpus.size) programs")
             synchronized = true
             
         default:
@@ -596,40 +655,40 @@ public class NetworkWorker: Module, MessageHandler {
         }
     }
     
-    func handleError(on connection: Connection) {
-        logger.warning("Trying to reconnect to master after connection error")
+    func handleError(_ err: String, on connection: Connection) {
+        logger.warning("Error on connection to master instance: \(err). Trying to reconnect to master...")
         connect()
     }
     
     private func connect() {
-        var fd: Int32 = -1
+        var fd: libsocket.socket_t = INVALID_SOCKET
         for _ in 0..<10 {
             fd = libsocket.socket_connect(masterHostname, masterPort)
-            if fd >= 0 {
+            if fd != INVALID_SOCKET {
                 break
-            } else {
-                logger.warning("Failed to connect to master. Retrying in 30 seconds")
-                sleep(30)
             }
+            logger.warning("Failed to connect to master. Retrying in 30 seconds")
+            Thread.sleep(forTimeInterval: 30)
         }
-        if fd < 0 {
+        if fd == INVALID_SOCKET {
             logger.fatal("Failed to connect to master")
         }
         
         logger.info("Connected to master, our id: \(fuzzer.id)")
-        conn = Connection(socket: fd, handler: self, fuzzer: fuzzer)
+        conn = Connection(socket: fd, handler: self)
         
         // Identify ourselves.
-        let encoder = JSONEncoder()
-        let msg = Identification(workerId: fuzzer.id)
-        let payload = try! encoder.encode(msg)
+        let msg = Fuzzilli_Protobuf_Identification.with { $0.uuid = fuzzer.id.uuidData }
+        let payload = try! msg.serializedData()
         conn.sendMessage(payload, ofType: .identify)
     }
     
     private func sendProgram(_ program: Program, type: MessageType) {
         assert(type == .program || type == .crash)
-        let encoder = JSONEncoder()
-        let payload = try! encoder.encode(program)
-        conn.sendMessage(payload, ofType: type)
+        let proto = program.asProtobuf()
+        guard let data = try? proto.serializedData() else {
+            return logger.error("Failed to serialize program")
+        }
+        conn.sendMessage(data, ofType: type)
     }
 }

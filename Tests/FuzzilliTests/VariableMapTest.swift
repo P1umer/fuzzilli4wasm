@@ -16,12 +16,9 @@ import XCTest
 @testable import Fuzzilli
 
 class VariableMapTests: XCTestCase {
-    func v(_ n: Int) -> Variable {
-        return Variable(number: n)
-    }
-    
     func testBasicVariableMapFeatures() {
         var m = VariableMap<Int>()
+        XCTAssert(m.isEmpty)
         
         XCTAssert(!m.contains(v(0)) && m[v(0)] == nil)
         
@@ -34,9 +31,18 @@ class VariableMapTests: XCTestCase {
         m[v(1)] = 1
         XCTAssert(m.contains(v(1)) && m[v(1)] == 1)
         
-        m.remove(v(1))
+        m.removeValue(forKey: v(1))
         XCTAssert(!m.contains(v(1)) && m[v(1)] == nil)
         XCTAssert(m.contains(v(0)) && m[v(0)] == 0)
+        
+        m.removeAll()
+        XCTAssertEqual(m, VariableMap<Int>())
+        XCTAssert(m.isEmpty)
+
+        m[v(43)] = 100
+        XCTAssertFalse(m.isEmpty)
+        m.removeValue(forKey: v(43))
+        XCTAssert(m.isEmpty)
     }
     
     func testVariableMapEquality() {
@@ -53,9 +59,9 @@ class VariableMapTests: XCTestCase {
         }
         XCTAssertEqual(m1, m2)
         
-        m1.remove(v(2))
+        m1.removeValue(forKey: v(2))
         XCTAssertNotEqual(m1, m2)
-        m2.remove(v(2))
+        m2.removeValue(forKey: v(2))
         XCTAssertEqual(m1, m2)
         
         // Add another 128 elements and compare with a new map built up in the opposite order
@@ -71,18 +77,18 @@ class VariableMapTests: XCTestCase {
             m3[v(i)] = m2[v(i)] ?? false
         }
         XCTAssertNotEqual(m1, m3)
-        m3.remove(v(2))
+        m3.removeValue(forKey: v(2))
         XCTAssertEqual(m3, m2)
         
         // Remove last 128 variables from m3, should now be equal to m1
         for i in 128..<256 {
-            m3.remove(v(i))
+            m3.removeValue(forKey: v(i))
         }
         XCTAssertEqual(m3, m1)
         
         // Remove all variables from m2, should now be equal to an empty map
         for i in 0..<256 {
-            m2.remove(v(i))
+            m2.removeValue(forKey: v(i))
         }
         XCTAssertEqual(m2, VariableMap<Bool>())
     }
@@ -135,6 +141,58 @@ class VariableMapTests: XCTestCase {
         }
         XCTAssertEqual(map, copy)
     }
+
+    func testEmptyVariableMapForHoles() {
+        let m = VariableMap<Int>()
+
+        XCTAssertEqual(m.hasHoles(), false)
+    }
+
+    func testDenseVariableMapForHoles() {
+        var m = VariableMap<Int>()
+
+        for i in 0..<20 {
+            m[v(i)] = Int.random(in: 0..<20)
+        }
+
+        XCTAssertEqual(m.hasHoles(), false)
+    }
+
+    func testForHolesAfterLastElementRemoval() {
+        var m = VariableMap<Int>()
+
+        let mapSize = 15
+        for i in 0..<mapSize {
+            m[v(i)] = Int.random(in: 0..<20)
+        }
+        m.removeValue(forKey: v(mapSize-1))
+
+        XCTAssertEqual(m.hasHoles(), false)
+    }
+
+    func testForHolesAfterFirstElementRemoval() {
+        var m = VariableMap<Int>()
+
+        let mapSize = 15
+        for i in 0..<mapSize {
+            m[v(i)] = Int.random(in: 0..<20)
+        }
+        m.removeValue(forKey: v(0))
+
+        XCTAssertEqual(m.hasHoles(), true)
+    }
+
+    func testForHolesAfterArbitraryElementRemoval() {
+        var m = VariableMap<Int>()
+
+        let mapSize = 15
+        for i in 0..<mapSize {
+            m[v(i)] = Int.random(in: 0..<20)
+        }
+        m.removeValue(forKey: v(Int.random(in: 0..<mapSize-1)))
+
+        XCTAssertEqual(m.hasHoles(), true)
+    }
 }
 
 extension VariableMapTests {
@@ -144,7 +202,12 @@ extension VariableMapTests {
             ("testVariableMapEquality", testVariableMapEquality),
             ("testVariableMapEncoding", testVariableMapEncoding),
             ("testVariableMapHashing", testVariableMapHashing),
-            ("testVariableMapIteration", testVariableMapIteration)
+            ("testVariableMapIteration", testVariableMapIteration),
+            ("testEmptyVariableMapForHoles", testEmptyVariableMapForHoles),
+            ("testDenseVariableMapForHoles", testDenseVariableMapForHoles),
+            ("testForHolesAfterLastElementRemoval", testForHolesAfterLastElementRemoval),
+            ("testForHolesAfterFirstElementRemoval", testForHolesAfterFirstElementRemoval),
+            ("testForHolesAfterArbitraryElementRemoval", testForHolesAfterArbitraryElementRemoval),
         ]
     }
 }

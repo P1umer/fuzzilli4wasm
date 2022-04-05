@@ -16,22 +16,18 @@
 ///
 /// In a way, this is a workaround for the fact that we don't have coverage feedback from JIT code.
 public class JITStressMutator: Mutator {
-    public init() {}
+    public override init() {}
     
-    public func mutate(_ program: Program, for fuzzer: Fuzzer) -> Program? {
-        let b = fuzzer.makeBuilder()
+    override func mutate(_ program: Program, using b: ProgramBuilder) -> Program? {
         b.append(program)
         
         // Possibly change the environment
-        b.generate(n: Int.random(in: 1...5))
+        b.generate(n: Int.random(in: 1...defaultMaxCodeGenerationAmount))
         
         // Call an existing (and hopefully JIT compiled) function again
-        if let f = b.randVar(ofGuaranteedType: .function()) {
-            let arguments = b.generateCallArguments(for: f)
-            b.callFunction(f, withArgs: arguments)
-            return b.finish()
-        } else {
-            return nil
-        }
+        guard let f = b.randVar(ofConservativeType: .function()) else { return nil }
+        guard let arguments = b.randCallArguments(for: f) else { return nil }
+        b.callFunction(f, withArgs: arguments)
+        return b.finalize()
     }
 }

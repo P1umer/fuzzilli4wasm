@@ -18,10 +18,9 @@ import XCTest
 class InliningTests: XCTestCase {
     func testBasicInlining() {
         let fuzzer = makeMockFuzzer()
+        let b = fuzzer.makeBuilder()
 
-        var b = fuzzer.makeBuilder()
-
-        let f = b.defineFunction(withSignature: FunctionSignature(withParameterCount: 3)) { args in
+        let f = b.definePlainFunction(withSignature: FunctionSignature(withParameterCount: 3)) { args in
             b.beginIf(args[0]) {
                 b.doReturn(value: args[1])
             }
@@ -35,35 +34,37 @@ class InliningTests: XCTestCase {
         var r = b.callFunction(f, withArgs: [a1, a2])
         b.unary(.BitwiseNot, r)
 
-        let program = b.finish()
+        let program = b.finalize()
 
-        let reducer = InliningReducer(fuzzer)
-        let inlinedProgram = reducer.inline(f, in: program)
-        XCTAssert(inlinedProgram.check() == .valid)
+        let reducer = InliningReducer()
+        var inlinedCode = reducer.inline(f, in: program.code)
 
-        // Inlining might leave holes in the variable space so the program must now be normalized.
-        inlinedProgram.normalize()
+        // Must normalize the code after inlining.
+        inlinedCode.normalize()
+
+        XCTAssert(inlinedCode.isStaticallyValid())
+
+        let inlinedProgram = Program(with: inlinedCode)
 
         let u: Variable
 
         // Resulting program should be:
-        b = fuzzer.makeBuilder()
         a1 = b.loadBool(true)
         a2 = b.loadInt(1337)
         u = b.loadUndefined()
-        r = b.phi(u)
+        r = b.loadUndefined()
         b.beginIf(a1) {
-            b.copy(a2, to: r)
+            b.reassign(r, to: a2)
         }
         b.beginElse {
-            b.copy(u, to: r)
+            b.reassign(r, to: u)
         }
         b.endIf()
         b.unary(.BitwiseNot, r)
 
-        let referenceProgram = b.finish()
+        let referenceProgram = b.finalize()
 
-        XCTAssert(areStructurallyEqual(inlinedProgram, referenceProgram))
+        XCTAssertEqual(inlinedProgram, referenceProgram)
     }
 }
 

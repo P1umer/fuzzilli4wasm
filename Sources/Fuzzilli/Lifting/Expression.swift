@@ -35,23 +35,32 @@ public enum Inlineability: UInt8 {
 }
 
 /// The type of an expression. Also serves as a constructor.
-public final class ExpressionType {
+public struct ExpressionType: Equatable {
+    static private var nextId: UInt32 = 0
+
+    let id: UInt32
     let precedence: UInt8
     let associativity: Associativity
     let inlineability: Inlineability
-    
+
     init(precedence: UInt8, associativity: Associativity = .none, inline inlineability: Inlineability = .never) {
+        self.id = ExpressionType.nextId
+        ExpressionType.nextId += 1
         self.precedence = precedence
         self.associativity = associativity
         self.inlineability = inlineability
     }
-    
+
     func new(_ initialText: String = "", inline inlineability: Inlineability) -> Expression {
         return Expression(type: self, text: initialText, inlineability: inlineability, numSubexpressions: 0)
     }
-    
+
     func new(_ initialText: String = "") -> Expression {
         return Expression(type: self, text: initialText, inlineability: inlineability, numSubexpressions: 0)
+    }
+
+    public static func ==(lhs: ExpressionType, rhs: ExpressionType) -> Bool {
+        return lhs.id == rhs.id
     }
 }
 
@@ -76,7 +85,8 @@ public struct Expression: CustomStringConvertible {
         case .singleUseOnly:
             return uses.count == 1
         case .always:
-            return true
+            // Inlining should not cause instructions to not being emitted at all
+            return uses.count > 0
         }
     }
     
@@ -125,7 +135,7 @@ public struct Expression: CustomStringConvertible {
         return lhs.extended(by: rhs)
     }
     
-    static func <>(lhs: Expression, rhs: Int) -> Expression {
+    static func <>(lhs: Expression, rhs: Int64) -> Expression {
         return lhs.extended(by: String(rhs))
     }
     

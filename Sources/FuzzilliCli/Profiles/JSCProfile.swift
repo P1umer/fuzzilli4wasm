@@ -14,18 +14,16 @@
 
 import Fuzzilli
 
-fileprivate func ForceDFGCompilationGenerator(_ b: ProgramBuilder) {
-    let f = b.randVar(ofType: .function())
-    let arguments = b.generateCallArguments(for: f)
+fileprivate let ForceDFGCompilationGenerator = CodeGenerator("ForceDFGCompilationGenerator", input: .function()) { b, f in
+   guard let arguments = b.randCallArguments(for: f) else { return }
     
     b.forLoop(b.loadInt(0), .lessThan, b.loadInt(10), .Add, b.loadInt(1)) { _ in
         b.callFunction(f, withArgs: arguments)
     }
 }
 
-fileprivate func ForceFTLCompilationGenerator(_ b: ProgramBuilder) {
-    let f = b.randVar(ofType: .function())
-    let arguments = b.generateCallArguments(for: f)
+fileprivate let ForceFTLCompilationGenerator = CodeGenerator("ForceFTLCompilationGenerator", input: .function()) { b, f in
+   guard let arguments = b.randCallArguments(for: f) else { return }
     
     b.forLoop(b.loadInt(0), .lessThan, b.loadInt(100), .Add, b.loadInt(1)) { _ in
         b.callFunction(f, withArgs: arguments)
@@ -34,47 +32,61 @@ fileprivate func ForceFTLCompilationGenerator(_ b: ProgramBuilder) {
 
 let jscProfile = Profile(
     processArguments: ["--validateOptions=true",
-                       // Concurrency doesn't really benefit us, it makes things undeterministic and potentially slows us down since all cores are busy already.
-                       "--useConcurrentJIT=false", "--useConcurrentGC=false",
                        // No need to call functions thousands of times before they are JIT compiled
                        "--thresholdForJITSoon=10",
                        "--thresholdForJITAfterWarmUp=10",
                        "--thresholdForOptimizeAfterWarmUp=100",
                        "--thresholdForOptimizeAfterLongWarmUp=100",
-                       "--thresholdForOptimizeAfterLongWarmUp=100",
+                       "--thresholdForOptimizeSoon=100",
                        "--thresholdForFTLOptimizeAfterWarmUp=1000",
                        "--thresholdForFTLOptimizeSoon=1000",
-                       // This might catch some memory corruption that would otherwise stay undetected
-                       "--gcAtEnd=true",
-                       // Our client-side REPRL implementation currently requires a dummy filename
-                       "fuzzcode.js"],
+                       // Enable bounds check elimination validation
+                       "--validateBCE=true",
+                       "--reprl"],
     
     processEnv: ["UBSAN_OPTIONS":"handle_segv=0"],
 
     codePrefix: """
+                function placeholder(){}
                 function main() {
                 """,
-    
+
     codeSuffix: """
+                gc();
                 }
                 noDFG(main);
                 noFTL(main);
                 main();
                 """,
-    
+
+    ecmaVersion: ECMAScriptVersion.es6,
+
     crashTests: ["fuzzilli('FUZZILLI_CRASH', 0)", "fuzzilli('FUZZILLI_CRASH', 1)", "fuzzilli('FUZZILLI_CRASH', 2)"],
 
     additionalCodeGenerators: WeightedList<CodeGenerator>([
-        (ForceDFGCompilationGenerator,    5),
-        (ForceFTLCompilationGenerator,    5),
-
+        (ForceDFGCompilationGenerator, 5),
+        (ForceFTLCompilationGenerator, 5),
     ]),
-        
+
+    additionalProgramTemplates: WeightedList<ProgramTemplate>([]),
+
+    disabledCodeGenerators: [],
+
     additionalBuiltins: [
         "gc"                  : .function([] => .undefined),
-        "transferArrayBuffer" : .function([.jsArrayBuffer] => .undefined),
-        "noInline"            : .function([.function()] => .undefined),
-        "noFTL"               : .function([.function()] => .undefined),
+        "transferArrayBuffer" : .function([.plain(.jsArrayBuffer)] => .undefined),
+        "noInline"            : .function([.plain(.function())] => .undefined),
+        "noFTL"               : .function([.plain(.function())] => .undefined),
         "createGlobalObject"  : .function([] => .object()),
+        "placeholder"         : .function([] => .undefined),
+        "OSRExit"             : .function([] => .unknown),
+        "drainMicrotasks"     : .function([] => .unknown),
+        "runString"           : .function([.plain(.jsString)] => .unknown),
+        "makeMasquerader"     : .function([] => .unknown),
+        "fullGC"              : .function([] => .undefined),
+        "edenGC"              : .function([] => .undefined),
+        "fiatInt52"           : .function([.plain(.number)] => .number),
+        "forceGCSlowPaths"    : .function([] => .unknown),
+        "ensureArrayStorage"  : .function([] => .unknown),
     ]
 )

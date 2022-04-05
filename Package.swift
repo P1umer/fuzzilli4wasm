@@ -24,13 +24,20 @@ let package = Package(
     products: [
         .library(name: "Fuzzilli", targets: ["Fuzzilli"]),
     ],
+    dependencies: [
+        .package(url: "https://github.com/apple/swift-protobuf.git", from: "1.6.0"),
+    ],
     targets: [
-        .target(name: "libforkserver", dependencies: []),
         .target(name: "libsocket", dependencies: []),
         .target(name: "libreprl", dependencies: []),
-        .target(name: "libcoverage", dependencies: [], linkerSettings: [.linkedLibrary("rt", .when(platforms: [.linux]))]),
-        .target(name: "Fuzzilli", dependencies: ["libforkserver", "libsocket", "libreprl", "libcoverage"]),
+        // Using '-c release' when building uses '-O2', so '-O3' provides a performance gain
+        .target(name: "libcoverage", dependencies: [], cSettings: [.unsafeFlags(["-O3"])], linkerSettings: [.linkedLibrary("rt", .when(platforms: [.linux]))]),
+        .target(name: "Fuzzilli", dependencies: ["SwiftProtobuf", "libsocket", "libreprl", "libcoverage", "JS"]),
+        .target(name: "REPRLRun", dependencies: ["libreprl"]),
         .target(name: "FuzzilliCli", dependencies: ["Fuzzilli"]),
+        .target(name: "JS", dependencies: []),
+        .target(name: "Benchmarks", dependencies: ["Fuzzilli"]),
+        .target(name: "FuzzILTool", dependencies: ["Fuzzilli"]),
 
         .testTarget(name: "FuzzilliTests", dependencies: ["Fuzzilli"]),
     ],

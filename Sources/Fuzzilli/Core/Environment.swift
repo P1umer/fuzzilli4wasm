@@ -15,7 +15,7 @@
 /// Model of the execution environment.
 public protocol Environment: Component {
     /// List of integer values that might yield interesting behaviour or trigger edge cases in the target language.
-    var interestingIntegers: [Int] { get }
+    var interestingIntegers: [Int64] { get }
     
     /// List of floating point values that might yield interesting behaviour or trigger edge cases in the target language.
     var interestingFloats: [Double] { get }
@@ -23,8 +23,11 @@ public protocol Environment: Component {
     /// List of string values that might yield interesting behaviour or trigger edge cases in the target language.
     var interestingStrings: [String] { get }
     
-    /// List of sectionName
-    var interestingSectionName: [String] { get }
+    /// List of RegExp patterns.
+    var interestingRegExps: [String] { get }
+
+    /// List of RegExp quantifiers.
+    var interestingRegExpQuantifiers: [String] { get }
     
     /// List of all builtin objects in the target environment.
     var builtins: Set<String> { get }
@@ -41,9 +44,17 @@ public protocol Environment: Component {
     /// List of all custom property names, i.e. ones that don't exist by default on any object. This is expected to be a subset of writePropertyNames.
     var customPropertyNames: Set<String> { get }
     
+    /// List of custom Method names, this is used during ProgramBuilder.generateVariable and in ProgramTemplate.generateType
+    var customMethodNames: Set<String> { get }
     
     /// The type representing integers in the target environment.
     var intType: Type { get }
+
+    /// The type representing bigints in the target environment.
+    var bigIntType: Type { get }
+    
+    /// The type representing RegExps in the target environment.
+    var regExpType: Type { get }
     
     /// The type representing floats in the target environment.
     var floatType: Type { get }
@@ -61,6 +72,9 @@ public protocol Environment: Component {
     /// The type representing arrays in the target environment.
     /// Used e.g. for arrays created through a literal.
     var arrayType: Type { get }
+
+    /// All other types exposed by the environment for which a constructor builtin exists. E.g. Uint8Array or Symbol in Javascript.
+    var constructables: [String] { get }
     
     /// Retuns the type representing a function with the given signature.
     func functionType(forSignature signature: FunctionSignature) -> Type
@@ -68,11 +82,11 @@ public protocol Environment: Component {
     /// Retuns the type of the builtin with the given name.
     func type(ofBuiltin builtinName: String) -> Type
     
-    /// Retuns the type for the given type name.
-    func type(forTypeName typeName: String) -> Type
-    
     /// Returns the type of the property on the provided base object.
     func type(ofProperty propertyName: String, on baseType: Type) -> Type
+    
+    /// Retuns the type for the given type name.
+    func type(forTypeName typeName: String) -> Type
     
     /// Returns the signature of the specified method of he base object.
     func signature(ofMethod methodName: String, on baseType: Type) -> FunctionSignature

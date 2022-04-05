@@ -14,38 +14,49 @@
 
 /// A mutator that changes the input variables of instructions in a program.
 public class InputMutator: BaseInstructionMutator {
-    public init() {
-        super.init(maxSimultaneousMutations: 3)
+    /// Whether this instance is type aware or not.
+    /// A type aware InputMutator will attempt to find "compatible" replacement
+    /// variables, which have roughly the same type as the replaced variable.
+    public let isTypeAware: Bool
+
+    /// The name of this mutator.
+    public override var name: String {
+        return isTypeAware ? "InputMutator (type aware)" : "InputMutator"
+    }
+
+    public init(isTypeAware: Bool) {
+        self.isTypeAware = isTypeAware
+        var maxSimultaneousMutations = defaultMaxSimultaneousMutations
+        // A type aware instance can be more aggressive. Based on simple experiments and
+        // the mutator correctness rates, it can very roughly be twice as aggressive.
+        if isTypeAware {
+            maxSimultaneousMutations *= 2
+        }
+        super.init(maxSimultaneousMutations: maxSimultaneousMutations)
+    }
+
+    public override func canMutate(_ instr: Instruction) -> Bool {
+        return instr.numInputs > 0
     }
     
-    override public func canMutate(_ instr: Instruction) -> Bool {
-        return instr.numInputs > 0 && instr.isMutable
-    }
-    
-    override public func mutate(_ instr: Instruction, _ b: ProgramBuilder) {
+    public override func mutate(_ instr: Instruction, _ b: ProgramBuilder) {
         var inouts = b.adopt(instr.inouts)
-        
+
         // Replace one input
         let selectedInput = Int.random(in: 0..<instr.numInputs)
-        // TODO get rid of special casing here somehow?
-        var newInput: Variable
-        if instr.operation is Copy && selectedInput == 0 {
-            newInput = b.randVar(ofGuaranteedType: .phi(of: .anything))!
-        } else if instr.isBlockEnd {
-            // Need to choose from the outer scope
-            newInput = b.randVarFromOuterScope()
-        } else if (instr.operation is Construct && selectedInput == 0) || instr.operation is Alter {
-            // no change
-            newInput = inouts[selectedInput]
+        // Inputs to block end instructions must be taken from the outer scope since the scope
+        // closed by the instruction is currently still active.
+        let replacement: Variable
+        if (isTypeAware) {
+            let type = b.type(of: inouts[selectedInput]).generalize()
+            // We are guaranteed to find at least the current input.
+            replacement = b.randVar(ofType: type, excludeInnermostScope: instr.isBlockEnd)!
         } else {
-            // same type
-            let type = b.type(of: inouts[selectedInput])
-            
-            newInput = b.randVar(ofType: type) // never gen new
+            replacement = b.randVar(excludeInnermostScope: instr.isBlockEnd)
         }
-        inouts[selectedInput] = newInput
-        
-        
-        b.append(Instruction(operation: instr.operation, inouts: inouts))
+        b.trace("Replacing input \(selectedInput) (\(inouts[selectedInput])) with \(replacement)")
+        inouts[selectedInput] = replacement
+
+        b.append(Instruction(instr.op, inouts: inouts))
     }
 }

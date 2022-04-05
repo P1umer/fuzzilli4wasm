@@ -20,138 +20,201 @@ public class Operation {
     /// The attributes of this operation.
     let attributes: Attributes
     
+    /// The context in which the operation can exist
+    let requiredContext: Context
+
+    /// The context that this operations opens
+    let contextOpened: Context
+
     /// The number of input variables to this operation.
-    let numInputs: Int
+    private let numInputs_: UInt16
+    var numInputs: Int {
+        return Int(numInputs_)
+    }
     
     /// The number of newly created variables in the current scope.
-    let numOutputs: Int
+    private let numOutputs_: UInt16
+    var numOutputs: Int {
+        return Int(numOutputs_)
+    }
     
     /// The number of newly created variables in the inner scope if one is created.
-    let numInnerOutputs: Int
-
-    /// The unique id of this operation's type.
-    var typeId: Int {
-        // Slight hack here with the forced downcast, but should be fine or at
-        // least crash during unit testing.
-        return (self as! TypeIdentifiable).typeId
+    private let numInnerOutputs_: UInt16
+    var numInnerOutputs: Int {
+        return Int(numInnerOutputs_)
     }
 
-    fileprivate init(numInputs: Int, numOutputs: Int, numInnerOutputs: Int = 0, attributes: Attributes = []) {
+    fileprivate init(numInputs: Int, numOutputs: Int, numInnerOutputs: Int = 0, attributes: Attributes = [], requiredContext: Context = .script, contextOpened: Context = .empty) {
         self.attributes = attributes
-        self.numInputs = numInputs
-        self.numOutputs = numOutputs
-        self.numInnerOutputs = numInnerOutputs
+        self.requiredContext = requiredContext
+        self.contextOpened = contextOpened
+        self.numInputs_ = UInt16(numInputs)
+        self.numOutputs_ = UInt16(numOutputs)
+        self.numInnerOutputs_ = UInt16(numInnerOutputs)
     }
     
     /// Possible attributes of an operation.
-    /// See Instruction.swift for an explanation of each of them.
     struct Attributes: OptionSet {
-        let rawValue: Int
+        let rawValue: UInt16
         
-        static let isPrimitive        = Attributes(rawValue: 1 << 0)
-        static let isLiteral          = Attributes(rawValue: 1 << 1)
-        static let isParametric       = Attributes(rawValue: 1 << 2)
-        static let isCall             = Attributes(rawValue: 1 << 3)
-        static let isBlockBegin       = Attributes(rawValue: 1 << 4)
-        static let isBlockEnd         = Attributes(rawValue: 1 << 5)
-        static let isLoopBegin        = Attributes(rawValue: 1 << 6)
-        static let isLoopEnd          = Attributes(rawValue: 1 << 7)
-        static let isInternal         = Attributes(rawValue: 1 << 8)
-        static let isJump             = Attributes(rawValue: 1 << 9)
-        static let isImmutable        = Attributes(rawValue: 1 << 10)
-        static let isVarargs          = Attributes(rawValue: 1 << 11)
+        // The operation is pure, i.e. returns the same output given
+        // the same inputs (in practice, for simplicity we only mark
+        // operations without inputs as pure) and doesn't have any
+        // side-effects. As such, two identical pure operations can
+        // always be replaced with just one.
+        static let isPure             = Attributes(rawValue: 1 << 0)
+        // The operation has parameters that can for example be mutated.
+        static let isParametric       = Attributes(rawValue: 1 << 1)
+        // The operation performs a subroutine call.
+        static let isCall             = Attributes(rawValue: 1 << 2)
+        // The operation is the start of a block.
+        static let isBlockBegin       = Attributes(rawValue: 1 << 3)
+        // The operation is the end of a block.
+        static let isBlockEnd         = Attributes(rawValue: 1 << 4)
+        // The operation is the start of a loop (and thus of a block).
+        static let isLoopBegin        = Attributes(rawValue: 1 << 5)
+        // The operation is the end of a loop (and thus of a block).
+        static let isLoopEnd          = Attributes(rawValue: 1 << 6)
+        // The operation is used for internal purposes and should not
+        // be visible to the user (e.g. appear in emitted samples).
+        static let isInternal         = Attributes(rawValue: 1 << 7)
+        // The operation behaves like an (unconditional) jump and
+        // so any following code will not be executed.
+        static let isJump             = Attributes(rawValue: 1 << 8)
+        // The operation can take a variable number of inputs. Existing
+        // inputs can be removed and new ones added.
+        static let isVarargs          = Attributes(rawValue: 1 << 9)
+        // The operation propagates the surrounding context
+        static let propagatesSurroundingContext = Attributes(rawValue: 1 << 10)
     }
 }
 
-/// A helper protocol for types that can be identified by a unique ID.
-protocol TypeIdentifiable {
-    static var typeId: Int { get }
-}
-
-extension TypeIdentifiable {
-    var typeId: Int {
-        return Self.typeId
-    }
-}
-
-class Nop: Operation, TypeIdentifiable {
-    static let typeId = 0
-    init() {
-        super.init(numInputs: 0, numOutputs: 0, attributes: [.isPrimitive])
-    }
-}
-
-class LoadInteger: Operation, TypeIdentifiable {
-    static let typeId = 1
-    let value: Int
+class LoadInteger: Operation {
+    let value: Int64
     
-    init(value: Int) {
+    init(value: Int64) {
         self.value = value
-        super.init(numInputs: 0, numOutputs: 1, attributes: [.isPrimitive, .isParametric, .isLiteral])
+        super.init(numInputs: 0, numOutputs: 1, attributes: [.isPure, .isParametric])
     }
 }
 
-class LoadNumber: Operation, TypeIdentifiable {
-    static let typeId = 65
-    let value: Int
+class LoadBigInt: Operation {
+    // This could be a bigger integer type, but it's most likely not worth the effort
+    let value: Int64
     
-    init(value: Int) {
+    init(value: Int64) {
         self.value = value
-        super.init(numInputs: 0, numOutputs: 1, attributes: [.isPrimitive, .isParametric, .isLiteral])
+        super.init(numInputs: 0, numOutputs: 1, attributes: [.isPure, .isParametric])
     }
 }
 
-class LoadFloat: Operation, TypeIdentifiable {
-    static let typeId = 2
+class LoadFloat: Operation {
     let value: Double
     
     init(value: Double) {
         self.value = value
-        super.init(numInputs: 0, numOutputs: 1, attributes: [.isPrimitive, .isParametric, .isLiteral])
+        super.init(numInputs: 0, numOutputs: 1, attributes: [.isPure, .isParametric])
     }
 }
 
-class LoadString: Operation, TypeIdentifiable {
-    static let typeId = 3
+class LoadString: Operation {
     let value: String
     
     init(value: String) {
         self.value = value
-        super.init(numInputs: 0, numOutputs: 1, attributes: [.isPrimitive, .isParametric, .isLiteral])
+        super.init(numInputs: 0, numOutputs: 1, attributes: [.isPure, .isParametric])
     }
 }
 
-class LoadBoolean: Operation, TypeIdentifiable {
-    static let typeId = 4
+class LoadBoolean: Operation {
     let value: Bool
     
     init(value: Bool) {
         self.value = value
-        super.init(numInputs: 0, numOutputs: 1, attributes: [.isPrimitive, .isParametric, .isLiteral])
+        super.init(numInputs: 0, numOutputs: 1, attributes: [.isPure, .isParametric])
     }
 }
 
-class LoadUndefined: Operation, TypeIdentifiable {
-    static let typeId = 5
+class LoadUndefined: Operation {
     init() {
-        super.init(numInputs: 0, numOutputs: 1, attributes: [.isPrimitive, .isLiteral])
+        super.init(numInputs: 0, numOutputs: 1, attributes: [.isPure])
     }
 }
 
-class LoadNull: Operation, TypeIdentifiable {
-    static let typeId = 6
+class LoadNull: Operation {
     init() {
-        super.init(numInputs: 0, numOutputs: 1, attributes: [.isPrimitive, .isLiteral])
+        super.init(numInputs: 0, numOutputs: 1, attributes: [.isPure])
     }
 }
 
-class CreateObject: Operation, TypeIdentifiable {
-    static let typeId = 7
+class LoadThis: Operation {
+    init() {
+        super.init(numInputs: 0, numOutputs: 1, attributes: [.isPure])
+    }
+}
+
+class LoadArguments: Operation {
+    init() {
+        super.init(numInputs: 0, numOutputs: 1, attributes: [.isPure], requiredContext: [.script, .function])
+    }
+}
+
+public struct RegExpFlags: OptionSet, Hashable {
+    public let rawValue: UInt32
+
+    public init(rawValue: UInt32) {
+        self.rawValue = rawValue
+    }
+
+    public func asString() -> String {
+        var strRepr = ""
+        for (flag, char) in RegExpFlags.flagToCharDict {
+            if contains(flag) {
+                strRepr += char
+            }
+        }
+        return strRepr
+    }
+
+    static let caseInsensitive = RegExpFlags(rawValue: 1 << 0)
+    static let global          = RegExpFlags(rawValue: 1 << 1)
+    static let multiline       = RegExpFlags(rawValue: 1 << 2)
+    static let dotall          = RegExpFlags(rawValue: 1 << 3)
+    static let unicode         = RegExpFlags(rawValue: 1 << 4)
+    static let sticky          = RegExpFlags(rawValue: 1 << 5)
+
+    public static func random() -> RegExpFlags {
+        return RegExpFlags(rawValue: UInt32.random(in: 0..<(1<<6)))
+    }
+
+    private static let flagToCharDict: [RegExpFlags:String] = [
+        .caseInsensitive: "i",
+        .global:          "g",
+        .multiline:       "m",
+        .dotall:          "s",
+        .unicode:         "u",
+        .sticky:          "y",
+    ]
+}
+
+class LoadRegExp: Operation {
+    let flags: RegExpFlags
+    let value: String
+
+    init(value: String, flags: RegExpFlags) {
+        self.value = value
+        self.flags = flags
+        super.init(numInputs: 0, numOutputs: 1, attributes: [.isPure, .isParametric])
+    }
+}
+
+class CreateObject: Operation {
+    // This array should be sorted to simplify comparison of two operations.
     let propertyNames: [String]
     
     init(propertyNames: [String]) {
         self.propertyNames = propertyNames
-        var flags: Operation.Attributes = [.isVarargs, .isLiteral]
+        var flags: Operation.Attributes = [.isVarargs]
         if propertyNames.count > 0 {
             flags.insert(.isParametric)
         }
@@ -159,20 +222,19 @@ class CreateObject: Operation, TypeIdentifiable {
     }
 }
 
-class CreateArray: Operation, TypeIdentifiable {
-    static let typeId = 8
+class CreateArray: Operation {
     var numInitialValues: Int {
         return numInputs
     }
     
     init(numInitialValues: Int) {
-        super.init(numInputs: numInitialValues, numOutputs: 1, attributes: [.isVarargs, .isLiteral])
+        super.init(numInputs: numInitialValues, numOutputs: 1, attributes: [.isVarargs])
     }
 }
 
-class CreateObjectWithSpread: Operation, TypeIdentifiable {
-    static let typeId = 9
+class CreateObjectWithSpread: Operation {
     // The property names of the "regular" properties. The remaining input values will be spread.
+    // This array should be sorted to simplify comparison of two operations.
     let propertyNames: [String]
     
     var numSpreads: Int {
@@ -181,7 +243,7 @@ class CreateObjectWithSpread: Operation, TypeIdentifiable {
     
     init(propertyNames: [String], numSpreads: Int) {
         self.propertyNames = propertyNames
-        var flags: Operation.Attributes = [.isVarargs, .isLiteral]
+        var flags: Operation.Attributes = [.isVarargs]
         if propertyNames.count > 0 {
             flags.insert(.isParametric)
         }
@@ -189,20 +251,35 @@ class CreateObjectWithSpread: Operation, TypeIdentifiable {
     }
 }
 
-class CreateArrayWithSpread: Operation, TypeIdentifiable {
-    static let typeId = 10
+class CreateArrayWithSpread: Operation {
     // Which inputs to spread.
     let spreads: [Bool]
     
     init(numInitialValues: Int, spreads: [Bool]) {
         assert(spreads.count == numInitialValues)
         self.spreads = spreads
-        super.init(numInputs: numInitialValues, numOutputs: 1, attributes: [.isVarargs, .isLiteral, .isParametric])
+        super.init(numInputs: numInitialValues, numOutputs: 1, attributes: [.isVarargs, .isParametric])
     }
 }
 
-class LoadBuiltin: Operation, TypeIdentifiable {
-    static let typeId = 11
+class CreateTemplateString: Operation {
+    // Stores the string elements of the temaplate literal
+    let parts: [String]
+
+    var numInterpolatedValues: Int {
+        return numInputs
+    }
+
+    // This operation isn't parametric since it will most likely mutate imported templates (which would mostly be valid JS snippets) and
+    // replace them with random strings and/or other template strings that may not be syntactically and/or semantically valid.
+    init(parts: [String]) {
+        self.parts = parts
+        assert(parts.count > 0)
+        super.init(numInputs: parts.count - 1, numOutputs: 1, attributes: [.isVarargs])
+    }
+}
+
+class LoadBuiltin: Operation {
     let builtinName: String
     
     init(builtinName: String) {
@@ -211,8 +288,7 @@ class LoadBuiltin: Operation, TypeIdentifiable {
     }
 }
 
-class LoadProperty: Operation, TypeIdentifiable {
-    static let typeId = 12
+class LoadProperty: Operation {
     let propertyName: String
     
     init(propertyName: String) {
@@ -221,8 +297,7 @@ class LoadProperty: Operation, TypeIdentifiable {
     }
 }
 
-class StoreProperty: Operation, TypeIdentifiable {
-    static let typeId = 13
+class StoreProperty: Operation {
     let propertyName: String
 
     init(propertyName: String) {
@@ -231,159 +306,232 @@ class StoreProperty: Operation, TypeIdentifiable {
     }
 }
 
-class DeleteProperty: Operation, TypeIdentifiable {
-    static let typeId = 14
+class StorePropertyWithBinop: Operation {
+    let propertyName: String
+    let op: BinaryOperator
+
+    init(propertyName: String, operator op: BinaryOperator) {
+        self.propertyName = propertyName
+        self.op = op
+        super.init(numInputs: 2, numOutputs: 0, attributes: [.isParametric])
+    }
+}
+
+class DeleteProperty: Operation {
     let propertyName: String
     
     init(propertyName: String) {
         self.propertyName = propertyName
-        super.init(numInputs: 1, numOutputs: 0, attributes: [.isParametric])
+        super.init(numInputs: 1, numOutputs: 1, attributes: [.isParametric])
     }
 }
 
-class LoadElement: Operation, TypeIdentifiable {
-    static let typeId = 15
-    let index: Int
+class LoadElement: Operation {
+    let index: Int64
     
-    init(index: Int) {
+    init(index: Int64) {
         self.index = index
         super.init(numInputs: 1, numOutputs: 1, attributes: [.isParametric])
     }
 }
 
-class StoreElement: Operation, TypeIdentifiable {
-    static let typeId = 16
-    let index: Int
+class StoreElement: Operation {
+    let index: Int64
     
-    init(index: Int) {
+    init(index: Int64) {
         self.index = index
         super.init(numInputs: 2, numOutputs: 0, attributes: [.isParametric])
     }
 }
 
-class DeleteElement: Operation, TypeIdentifiable {
-    static let typeId = 17
-    let index: Int
+class StoreElementWithBinop: Operation {
+    let index: Int64
+    let op: BinaryOperator
     
-    init(index: Int) {
+    init(index: Int64, operator op: BinaryOperator) {
         self.index = index
-        super.init(numInputs: 1, numOutputs: 0, attributes: [.isParametric])
+        self.op = op
+        super.init(numInputs: 2, numOutputs: 0, attributes: [.isParametric])
     }
 }
 
-class LoadComputedProperty: Operation, TypeIdentifiable {
-    static let typeId = 18
+class DeleteElement: Operation {
+    let index: Int64
+    
+    init(index: Int64) {
+        self.index = index
+        super.init(numInputs: 1, numOutputs: 1, attributes: [.isParametric])
+    }
+}
+
+class LoadComputedProperty: Operation {
     init() {
         super.init(numInputs: 2, numOutputs: 1)
     }
 }
 
-class StoreComputedProperty: Operation, TypeIdentifiable {
-    static let typeId = 19
+class StoreComputedProperty: Operation {
     init() {
         super.init(numInputs: 3, numOutputs: 0)
     }
 }
 
-class DeleteComputedProperty: Operation, TypeIdentifiable {
-    static let typeId = 20
-    init() {
-        super.init(numInputs: 2, numOutputs: 0)
+class StoreComputedPropertyWithBinop: Operation {
+    let op: BinaryOperator
+
+    init(operator op: BinaryOperator) {
+        self.op = op
+        super.init(numInputs: 3, numOutputs: 0)
     }
 }
 
-class TypeOf: Operation, TypeIdentifiable {
-    static let typeId = 21
+class DeleteComputedProperty: Operation {
+    init() {
+        super.init(numInputs: 2, numOutputs: 1)
+    }
+}
+
+class TypeOf: Operation {
     init() {
         super.init(numInputs: 1, numOutputs: 1)
     }
 }
 
-class InstanceOf: Operation, TypeIdentifiable {
-    static let typeId = 22
+class InstanceOf: Operation {
     init() {
         super.init(numInputs: 2, numOutputs: 1)
     }
 }
 
-class In: Operation, TypeIdentifiable {
-    static let typeId = 23
+class In: Operation {
     init() {
         super.init(numInputs: 2, numOutputs: 1)
     }
 }
 
-class BeginFunctionDefinition: Operation, TypeIdentifiable {
-    static let typeId = 24
+class BeginAnyFunctionDefinition: Operation {
     let signature: FunctionSignature
-    let isJSStrictMode: Bool
-    
+    let isStrict: Bool
+
     /// Whether the last parameter is a rest parameter.
     var hasRestParam: Bool {
-        return signature.inputTypes.last?.isList ?? false
+        return signature.hasVarargsParameter()
     }
     
-    init(signature: FunctionSignature, isJSStrictMode: Bool) {
+    init(signature: FunctionSignature, isStrict: Bool, contextOpened: Context = [.script, .function]) {
         self.signature = signature
-        self.isJSStrictMode = isJSStrictMode
-        super.init(numInputs: 0, numOutputs: 1, numInnerOutputs: signature.inputTypes.count, attributes: [.isBlockBegin])
+        self.isStrict = isStrict
+        super.init(numInputs: 0,
+                   numOutputs: 1,
+                   numInnerOutputs: signature.numOutputVariablesInCallee,
+                   attributes: [.isParametric, .isBlockBegin], contextOpened: contextOpened)
     }
 }
 
-class Return: Operation, TypeIdentifiable {
-    static let typeId = 25
-    init() {
-        super.init(numInputs: 1, numOutputs: 0, attributes: [.isJump])
-    }
-}
-
-class EndFunctionDefinition: Operation, TypeIdentifiable {
-    static let typeId = 26
+class EndAnyFunctionDefinition: Operation {
     init() {
         super.init(numInputs: 0, numOutputs: 0, attributes: [.isBlockEnd])
     }
 }
 
-class CallMethod: Operation, TypeIdentifiable {
-    static let typeId = 27
+// A plain function
+class BeginPlainFunctionDefinition: BeginAnyFunctionDefinition {}
+class EndPlainFunctionDefinition: EndAnyFunctionDefinition {}
+
+// A ES6 arrow function
+class BeginArrowFunctionDefinition: BeginAnyFunctionDefinition {}
+class EndArrowFunctionDefinition: EndAnyFunctionDefinition {}
+
+// A ES6 generator function
+class BeginGeneratorFunctionDefinition: BeginAnyFunctionDefinition {
+    init(signature: FunctionSignature, isStrict: Bool) {
+        super.init(signature: signature, isStrict: isStrict, contextOpened: [.script, .function, .generatorFunction])
+    }
+}
+class EndGeneratorFunctionDefinition: EndAnyFunctionDefinition {}
+
+// A ES6 async function
+class BeginAsyncFunctionDefinition: BeginAnyFunctionDefinition {
+    init(signature: FunctionSignature, isStrict: Bool) {
+        super.init(signature: signature, isStrict: isStrict, contextOpened: [.script, .function, .asyncFunction])
+    }
+}
+class EndAsyncFunctionDefinition: EndAnyFunctionDefinition {}
+
+// A ES6 async arrow function
+class BeginAsyncArrowFunctionDefinition: BeginAnyFunctionDefinition {
+    init(signature: FunctionSignature, isStrict: Bool) {
+        super.init(signature: signature, isStrict: isStrict, contextOpened: [.script, .function, .asyncFunction])
+    }
+}
+class EndAsyncArrowFunctionDefinition: EndAnyFunctionDefinition {}
+
+// A ES6 async generator function
+class BeginAsyncGeneratorFunctionDefinition: BeginAnyFunctionDefinition {
+    init(signature: FunctionSignature, isStrict: Bool) {
+        super.init(signature: signature, isStrict: isStrict, contextOpened: [.script, .function, .asyncFunction, .generatorFunction])
+    }
+}
+class EndAsyncGeneratorFunctionDefinition: EndAnyFunctionDefinition {}
+
+class Return: Operation {
+    init() {
+        super.init(numInputs: 1, numOutputs: 0, attributes: [.isJump], requiredContext: [.script, .function])
+    }
+}
+
+// A yield expression in JavaScript
+class Yield: Operation {
+    init() {
+        super.init(numInputs: 1, numOutputs: 1, attributes: [], requiredContext: [.script, .generatorFunction])
+    }
+}
+
+// A yield* expression in JavaScript
+class YieldEach: Operation {
+    init() {
+        super.init(numInputs: 1, numOutputs: 0, attributes: [], requiredContext: [.script, .generatorFunction])
+    }
+}
+
+class Await: Operation {
+    init() {
+        super.init(numInputs: 1, numOutputs: 1, attributes: [], requiredContext: [.script, .asyncFunction])
+    }
+}
+
+class CallMethod: Operation {
     let methodName: String
+    let spreads: [Bool]
+
     var numArguments: Int {
         return numInputs - 1
     }
     
-    init(methodName: String, numArguments: Int) {
+    init(methodName: String, numArguments: Int, spreads: [Bool]) {
+        assert(spreads.count == numArguments)
         self.methodName = methodName
+        self.spreads = spreads
         // reference object is the first input
         super.init(numInputs: numArguments + 1, numOutputs: 1, attributes: [.isParametric, .isVarargs, .isCall])
     }
 }
 
-class CallFunction: Operation, TypeIdentifiable {
-    static let typeId = 28
+class CallComputedMethod: Operation {
+    let spreads: [Bool]
     var numArguments: Int {
-        return numInputs - 1
+        return numInputs - 2
     }
-    
-    init(numArguments: Int) {
-        // function object is the first input
-        super.init(numInputs: numArguments + 1, numOutputs: 1, attributes: [.isCall, .isVarargs])
+
+    init(numArguments: Int, spreads: [Bool]) {
+        assert(spreads.count == numArguments)
+        self.spreads = spreads
+        // reference object is the first input and method name is the second input
+        super.init(numInputs: numArguments + 2, numOutputs: 1, attributes: [.isVarargs, .isCall])
     }
 }
 
-class Construct: Operation, TypeIdentifiable {
-    static let typeId = 29
-    var numArguments: Int {
-        return numInputs - 1
-    }
-    
-    init(numArguments: Int) {
-        // constructor is the first input
-        super.init(numInputs: numArguments + 1, numOutputs: 1, attributes: [.isCall, .isVarargs])
-    }
-}
-
-class CallFunctionWithSpread: Operation, TypeIdentifiable {
-    static let typeId = 30
+class CallFunction: Operation {
     // Which inputs to spread
     let spreads: [Bool]
     
@@ -398,22 +546,48 @@ class CallFunctionWithSpread: Operation, TypeIdentifiable {
     }
 }
 
-public enum UnaryOperator: String {
-    // Note: these *do not* modify their input. They will essentially be translated to `vX = vY + 1`
-    case Inc        = "++"
-    case Dec        = "--"
-    case LogicalNot = "!"
-    case BitwiseNot = "~"
+class Construct: Operation {
+    let spreads: [Bool]
+
+    var numArguments: Int {
+        return numInputs - 1
+    }
     
-    var token: String {
-        return self.rawValue
+    init(numArguments: Int, spreads: [Bool]) {
+        assert(spreads.count == numArguments)
+        self.spreads = spreads
+        // constructor is the first input
+        super.init(numInputs: numArguments + 1, numOutputs: 1, attributes: [.isCall, .isVarargs])
     }
 }
 
-let allUnaryOperators: [UnaryOperator] = [.Inc, .Dec, .LogicalNot, .BitwiseNot]
+public enum UnaryOperator: String, CaseIterable {
+    case PreInc     = "++"
+    case PreDec     = "--"
+    case PostInc    = "++ "     // Raw value must be unique
+    case PostDec    = "-- "     // Raw value must be unique
+    case LogicalNot = "!"
+    case BitwiseNot = "~"
+    case Plus       = "+"
+    case Minus      = "-"
 
-class UnaryOperation: Operation, TypeIdentifiable {
-    static let typeId = 31
+    var token: String {
+        return self.rawValue.trimmingCharacters(in: [" "])
+    }
+    
+    var reassignsInput: Bool {
+        return self == .PreInc || self == .PreDec || self == .PostInc || self == .PostDec
+    }
+    
+    var isPostfix: Bool {
+        return self == .PostInc || self == .PostDec
+    }
+}
+
+// This array must be kept in sync with the UnaryOperator Enum in operations.proto
+let allUnaryOperators = UnaryOperator.allCases
+
+class UnaryOperation: Operation {
     let op: UnaryOperator
     
     init(_ op: UnaryOperator) {
@@ -422,7 +596,7 @@ class UnaryOperation: Operation, TypeIdentifiable {
     }
 }
 
-public enum BinaryOperator: String {
+public enum BinaryOperator: String, CaseIterable {
     case Add      = "+"
     case Sub      = "-"
     case Mul      = "*"
@@ -435,16 +609,18 @@ public enum BinaryOperator: String {
     case Xor      = "^"
     case LShift   = "<<"
     case RShift   = ">>"
+    case Exp      = "**"
+    case UnRShift = ">>>"
     
     var token: String {
         return self.rawValue
     }
 }
 
-let allBinaryOperators: [BinaryOperator] = [.Add, .Sub, .Mul, .Div, .Mod, .BitAnd, .BitOr, .LogicAnd, .LogicOr, .LShift, .RShift]
+// This array must be kept in sync with the BinaryOperator Enum in operations.proto
+let allBinaryOperators = BinaryOperator.allCases
 
-class BinaryOperation: Operation, TypeIdentifiable {
-    static let typeId = 32
+class BinaryOperation: Operation {
     let op: BinaryOperator
     
     init(_ op: BinaryOperator) {
@@ -453,26 +629,92 @@ class BinaryOperation: Operation, TypeIdentifiable {
     }
 }
 
-/// This creates a variable that can be reassigned.
-class Phi: Operation, TypeIdentifiable {
-    static let typeId = 33
+/// Assigns a value to its left operand based on the value of its right operand.
+class ReassignWithBinop: Operation {
+    let op: BinaryOperator
+
+    init(_ op: BinaryOperator) {
+        self.op = op
+        super.init(numInputs: 2, numOutputs: 0)
+    }
+}
+
+/// Duplicates a variable, essentially doing `output = input;`
+class Dup: Operation {
     init() {
         super.init(numInputs: 1, numOutputs: 1)
     }
 }
 
-/// Reassigns an existing Phi variable.
-class Copy: Operation, TypeIdentifiable {
-    static let typeId = 34
+/// Reassigns an existing variable, essentially doing `input1 = input2;`
+class Reassign: Operation {
     init() {
         super.init(numInputs: 2, numOutputs: 0)
     }
 }
 
+/// Destructs an array into n output variables
+class DestructArray: Operation {
+    let indices: [Int]
+    let hasRestElement: Bool
+    
+    init(indices: [Int], hasRestElement: Bool) {
+        assert(indices == indices.sorted(), "Indices must be sorted in ascending order")
+        assert(indices.count == Set(indices).count, "Indices must not have duplicates")
+        self.indices = indices
+        self.hasRestElement = hasRestElement
+        super.init(numInputs: 1, numOutputs: indices.count)
+    }
+}
+
+/// Destructs an array and reassigns the output to n existing variables
+class DestructArrayAndReassign: Operation {
+    let indices: [Int]
+    let hasRestElement: Bool
+
+    init(indices: [Int], hasRestElement:Bool) {
+        assert(indices == indices.sorted(), "Indices must be sorted in ascending order")
+        assert(indices.count == Set(indices).count, "Indices must not have duplicates")
+        self.indices = indices
+        self.hasRestElement = hasRestElement
+        // The first input is the array being destructed
+        super.init(numInputs: 1 + indices.count, numOutputs: 0)
+    }
+}
+
+/// Destructs an object into n output variables
+class DestructObject: Operation {
+    let properties: [String]
+    let hasRestElement: Bool
+
+    init(properties: [String], hasRestElement: Bool) {
+        assert(!properties.isEmpty || hasRestElement, "Must have at least one output")
+        self.properties = properties
+        self.hasRestElement = hasRestElement
+        super.init(numInputs: 1, numOutputs: properties.count + (hasRestElement ? 1 : 0))
+    }
+}
+
+/// Destructs an object and reassigns the output to n existing variables
+class DestructObjectAndReassign: Operation {
+    let properties: [String]
+    let hasRestElement: Bool
+
+    init(properties: [String], hasRestElement:Bool) {
+        assert(!properties.isEmpty || hasRestElement, "Must have at least one input variable to reassign")
+        self.properties = properties
+        self.hasRestElement = hasRestElement
+        // The first input is the object being destructed
+        super.init(numInputs: 1 + properties.count + (hasRestElement ? 1 : 0), numOutputs: 0)
+    }
+}
+
+// This array must be kept in sync with the Comparator Enum in operations.proto
 public enum Comparator: String {
     case equal              = "=="
     case strictEqual        = "==="
     case notEqual           = "!="
+    case strictNotEqual     = "!=="
     case lessThan           = "<"
     case lessThanOrEqual    = "<="
     case greaterThan        = ">"
@@ -483,61 +725,189 @@ public enum Comparator: String {
     }
 }
 
-let allComparators: [Comparator] = [.equal, .strictEqual, .notEqual, .lessThan, .lessThanOrEqual, .greaterThan, .greaterThanOrEqual]
+let allComparators: [Comparator] = [.equal, .strictEqual, .notEqual, .strictNotEqual, .lessThan, .lessThanOrEqual, .greaterThan, .greaterThanOrEqual]
 
-class Compare: Operation, TypeIdentifiable {
-    static let typeId = 35
-    let comparator: Comparator
+class Compare: Operation {
+    let op: Comparator
     
     init(_ comparator: Comparator) {
-        self.comparator = comparator
+        self.op = comparator
         super.init(numInputs: 2, numOutputs: 1, attributes: [.isParametric])
     }
 }
 
-/// An operation that will be lowered to a given string. The string can use %@ placeholders which
-/// will be replaced by the input variables during lowering. Eval operations will also never be mutated.
-class Eval: Operation, TypeIdentifiable {
-    static let typeId = 36
-    let string: String
+/// Allows generation of conditional (i.e. condition ? exprIfTrue : exprIfFalse) statements
+class ConditionalOperation: Operation {
+    init() {
+        super.init(numInputs: 3, numOutputs: 1)
+    }
+}
+
+/// An operation that will be lifted to a given string. The string can use %@ placeholders which
+/// will be replaced by the expressions for the input variables during lifting.
+class Eval: Operation {
+    let code: String
     
     init(_ string: String, numArguments: Int) {
-        self.string = string
-        super.init(numInputs: numArguments, numOutputs: 0, numInnerOutputs: 0, attributes: [.isImmutable])
+        self.code = string
+        super.init(numInputs: numArguments, numOutputs: 0, numInnerOutputs: 0)
     }
 }
 
-class BeginWith: Operation, TypeIdentifiable {
-    static let typeId = 37
+class BeginWith: Operation {
     init() {
-        super.init(numInputs: 1, numOutputs: 0, attributes: [.isBlockBegin])
+        super.init(numInputs: 1, numOutputs: 0, attributes: [.isBlockBegin, .propagatesSurroundingContext], contextOpened: [.script, .with])
     }
 }
 
-class EndWith: Operation, TypeIdentifiable {
-    static let typeId = 38
+class EndWith: Operation {
     init() {
         super.init(numInputs: 0, numOutputs: 0, attributes: [.isBlockEnd])
     }
 }
 
-class LoadFromScope: Operation, TypeIdentifiable {
-    static let typeId = 39
+class LoadFromScope: Operation {
     let id: String
     
     init(id: String) {
         self.id = id
-        super.init(numInputs: 0, numOutputs: 1, attributes: [.isParametric])
+        super.init(numInputs: 0, numOutputs: 1, attributes: [.isParametric], requiredContext: [.script, .with])
     }
 }
 
-class StoreToScope: Operation, TypeIdentifiable {
-    static let typeId = 40
+class StoreToScope: Operation {
     let id: String
     
     init(id: String) {
         self.id = id
-        super.init(numInputs: 1, numOutputs: 0, attributes: [.isParametric])
+        super.init(numInputs: 1, numOutputs: 0, attributes: [.isParametric], requiredContext: [.script, .with])
+    }
+}
+
+class Nop: Operation {
+    // NOPs can have "pseudo" outputs. These should not be used by other instructions
+    // and they should not be present in the lifted code, i.e. a NOP should just be
+    // ignored during lifting.
+    // These pseudo outputs are used to simplify some algorithms, e.g. minimization,
+    // which needs to replace instructions with NOPs while keeping the variable numbers
+    // contiguous. They can also serve as placeholders for future instructions.
+    init(numOutputs: Int = 0) {
+        super.init(numInputs: 0, numOutputs: numOutputs)
+    }
+}
+
+///
+/// Classes
+///
+/// Classes in FuzzIL look roughly as follows:
+///
+///     BeginClassDefinition superclass, properties, methods, constructor parameters
+///         < constructor code >
+///     BeginMethodDefinition
+///         < code of first method >
+///     BeginMethodDefinition
+///         < code of second method >
+///     EndClassDefinition
+///
+///  This design solves the following two requirements:
+///  - All information about the instance type must be contained in the BeginClassDefinition operation so that
+///    the AbstractInterpreter and other static analyzers have the instance type when processing the body
+///  - Method definitions must be part of a block group and not standalone blocks. Otherwise, splicing might end
+///    up copying only a method definition without the surrounding class definition, which would be syntactically invalid.
+///
+class BeginClassDefinition: Operation {
+    let hasSuperclass: Bool
+    let constructorParameters: [Parameter]
+    let instanceProperties: [String]
+    let instanceMethods: [(name: String, signature: FunctionSignature)]
+
+    init(hasSuperclass: Bool,
+         constructorParameters: [Parameter],
+         instanceProperties: [String],
+         instanceMethods: [(String, FunctionSignature)]) {
+        self.hasSuperclass = hasSuperclass
+        self.constructorParameters = constructorParameters
+        self.instanceProperties = instanceProperties
+        self.instanceMethods = instanceMethods
+        super.init(numInputs: hasSuperclass ? 1 : 0,
+                   numOutputs: 1,
+                   numInnerOutputs: 1 + constructorParameters.count,    // Implicit this is first inner output
+                   attributes: [.isBlockBegin], contextOpened: [.script, .classDefinition, .function])
+    }
+}
+
+// A class instance method. Always has the implicit |this| parameter as first inner output.
+class BeginMethodDefinition: Operation {
+    var numParameters: Int {
+        return numInnerOutputs - 1
+    }
+
+    init(numParameters: Int) {
+        super.init(numInputs: 0,
+                   numOutputs: 0,
+                   numInnerOutputs: 1 + numParameters,      // Implicit this is first inner output
+                   attributes: [.isBlockBegin, .isBlockEnd], requiredContext: .classDefinition, contextOpened: [.script, .classDefinition, .function])
+    }
+}
+
+class EndClassDefinition: Operation {
+    init() {
+        super.init(numInputs: 0, numOutputs: 0, attributes: [.isBlockEnd])
+    }
+}
+
+class CallSuperConstructor: Operation {
+    let spreads: [Bool]
+
+    var numArguments: Int {
+        return numInputs
+    }
+
+    init(numArguments: Int, spreads: [Bool]) {
+        self.spreads = spreads
+        super.init(numInputs: numArguments, numOutputs: 0, attributes: [.isCall, .isVarargs, .isParametric], requiredContext: [.script, .classDefinition])
+    }
+}
+
+class CallSuperMethod: Operation {
+    let methodName: String
+
+    var numArguments: Int {
+        return numInputs
+    }
+
+    init(methodName: String, numArguments: Int) {
+        self.methodName = methodName
+        super.init(numInputs: numArguments, numOutputs: 1, attributes: [.isCall, .isParametric, .isVarargs], requiredContext: [.script, .classDefinition])
+    }
+}
+
+class LoadSuperProperty: Operation {
+    let propertyName: String
+
+    init(propertyName: String) {
+        self.propertyName = propertyName
+        super.init(numInputs: 0, numOutputs: 1, attributes: [.isParametric], requiredContext: [.script, .classDefinition])
+    }
+}
+
+class StoreSuperProperty: Operation {
+    let propertyName: String
+
+    init(propertyName: String) {
+        self.propertyName = propertyName
+        super.init(numInputs: 1, numOutputs: 0, attributes: [.isParametric], requiredContext: [.script, .classDefinition])
+    }
+}
+
+class StoreSuperPropertyWithBinop: Operation {
+    let propertyName: String
+    let op: BinaryOperator
+
+    init(propertyName: String, operator op: BinaryOperator) {
+        self.propertyName = propertyName
+        self.op = op
+        super.init(numInputs: 1, numOutputs: 0, attributes: [.isParametric], requiredContext: [.script, .classDefinition])
     }
 }
 
@@ -545,159 +915,224 @@ class StoreToScope: Operation, TypeIdentifiable {
 /// Control Flow
 ///
 class ControlFlowOperation: Operation {
-    init(numInputs: Int, numInnerOutputs: Int = 0, attributes: Operation.Attributes) {
+    init(numInputs: Int, numInnerOutputs: Int = 0, attributes: Operation.Attributes, contextOpened: Context = .script) {
         assert(attributes.contains(.isBlockBegin) || attributes.contains(.isBlockEnd))
-        super.init(numInputs: numInputs, numOutputs: 0, numInnerOutputs: numInnerOutputs, attributes: attributes)
+        super.init(numInputs: numInputs, numOutputs: 0, numInnerOutputs: numInnerOutputs, attributes: attributes.union(.propagatesSurroundingContext), contextOpened: contextOpened)
     }
 }
 
-class BeginIf: ControlFlowOperation, TypeIdentifiable {
-    static let typeId = 41
+class BeginIf: ControlFlowOperation {
     init() {
         super.init(numInputs: 1, attributes: [.isBlockBegin])
     }
 }
 
-class BeginElse: ControlFlowOperation, TypeIdentifiable {
-    static let typeId = 42
+class BeginElse: ControlFlowOperation {
     init() {
         super.init(numInputs: 0, attributes: [.isBlockEnd, .isBlockBegin])
     }
 }
 
-class EndIf: ControlFlowOperation, TypeIdentifiable {
-    static let typeId = 43
+class EndIf: ControlFlowOperation {
     init() {
         super.init(numInputs: 0, attributes: [.isBlockEnd])
     }
 }
 
-class BeginWhile: ControlFlowOperation, TypeIdentifiable {
-    static let typeId = 44
-    let comparator: Comparator
-    init(comparator: Comparator) {
-        self.comparator = comparator
-        super.init(numInputs: 2, attributes: [.isParametric, .isBlockBegin, .isLoopBegin])
+/// The block content is the body of the first switch case
+class BeginSwitch: ControlFlowOperation {
+
+    var isDefaultCase: Bool {
+        return numInputs == 1
+    }
+
+    init(numArguments: Int) {
+        super.init(numInputs: numArguments, attributes: [.isBlockBegin], contextOpened: [.script, .switchCase])
     }
 }
 
-class EndWhile: ControlFlowOperation, TypeIdentifiable {
-    static let typeId = 45
+class BeginSwitchCase: ControlFlowOperation {
+    /// If true, causes the preceding case to fall through to it (and so no "break;" is emitted by the Lifter)
+    let previousCaseFallsThrough: Bool
+
+    var isDefaultCase: Bool {
+        return numInputs == 0
+    }
+
+    init(numArguments: Int, fallsThrough: Bool) {
+        self.previousCaseFallsThrough = fallsThrough
+        super.init(numInputs: numArguments, attributes: [.isBlockBegin, .isBlockEnd], contextOpened: [.script, .switchCase])
+    }
+}
+
+class EndSwitch: ControlFlowOperation {
+    init() {
+        super.init(numInputs: 0, attributes: [.isBlockEnd])
+    }
+}
+
+class BeginWhile: ControlFlowOperation {
+    let comparator: Comparator
+    init(comparator: Comparator) {
+        self.comparator = comparator
+        super.init(numInputs: 2, attributes: [.isParametric, .isBlockBegin, .isLoopBegin], contextOpened: [.script, .loop])
+    }
+}
+
+class EndWhile: ControlFlowOperation {
     init() {
         super.init(numInputs: 0, attributes: [.isBlockEnd, .isLoopEnd])
     }
 }
 
-class BeginDoWhile: ControlFlowOperation, TypeIdentifiable {
-    static let typeId = 46
-    init() {
-        super.init(numInputs: 0, attributes: [.isBlockBegin, .isLoopBegin])
-    }
-}
-
-class EndDoWhile: ControlFlowOperation, TypeIdentifiable {
-    static let typeId = 47
+// Even though the loop condition is evaluated during EndDoWhile,
+// the inputs are kept in BeginDoWhile as they have to come from
+// the outer scope. Otherwise, special handling of EndDoWhile would
+// be necessary throughout the IL, this way, only the Lifter has to
+// be a bit more clever.
+class BeginDoWhile: ControlFlowOperation {
     let comparator: Comparator
     init(comparator: Comparator) {
         self.comparator = comparator
-        super.init(numInputs: 2, attributes: [.isParametric, .isBlockEnd, .isLoopEnd])
+        super.init(numInputs: 2, attributes: [.isParametric, .isBlockBegin, .isLoopBegin], contextOpened: [.script, .loop])
     }
 }
 
-class BeginFor: ControlFlowOperation, TypeIdentifiable {
-    static let typeId = 48
+class EndDoWhile: ControlFlowOperation {
+    init() {
+        super.init(numInputs: 0, attributes: [.isBlockEnd, .isLoopEnd])
+    }
+}
+
+class BeginFor: ControlFlowOperation {
     let comparator: Comparator
     let op: BinaryOperator
     init(comparator: Comparator, op: BinaryOperator) {
         self.comparator = comparator
-        self.op = op    
-        super.init(numInputs: 3, numInnerOutputs: 1, attributes: [.isParametric, .isBlockBegin, .isLoopBegin])
+        self.op = op
+        super.init(numInputs: 3, numInnerOutputs: 1, attributes: [.isParametric, .isBlockBegin, .isLoopBegin], contextOpened: [.script, .loop])
     }
 }
 
-class EndFor: ControlFlowOperation, TypeIdentifiable {
-    static let typeId = 49
+class EndFor: ControlFlowOperation {
     init() {
         super.init(numInputs: 0, attributes: [.isBlockEnd, .isLoopEnd])
     }
 }
 
-class BeginForIn: ControlFlowOperation, TypeIdentifiable {
-    static let typeId = 50
+class BeginForIn: ControlFlowOperation {
     init() {
-        super.init(numInputs: 1, numInnerOutputs: 1, attributes: [.isBlockBegin, .isLoopBegin])
+        super.init(numInputs: 1, numInnerOutputs: 1, attributes: [.isBlockBegin, .isLoopBegin], contextOpened: [.script, .loop])
     }
 }
 
-class EndForIn: ControlFlowOperation, TypeIdentifiable {
-    static let typeId = 51
+class EndForIn: ControlFlowOperation {
     init() {
         super.init(numInputs: 0, attributes: [.isBlockEnd, .isLoopEnd])
     }
 }
 
-class BeginForOf: ControlFlowOperation, TypeIdentifiable {
-    static let typeId = 52
+class BeginForOf: ControlFlowOperation {
     init() {
-        super.init(numInputs: 1, numInnerOutputs: 1, attributes: [.isBlockBegin, .isLoopBegin])
+        super.init(numInputs: 1, numInnerOutputs: 1, attributes: [.isBlockBegin, .isLoopBegin], contextOpened: [.script, .loop])
     }
 }
 
-class EndForOf: ControlFlowOperation, TypeIdentifiable {
-    static let typeId = 53
+class BeginForOfWithDestruct: ControlFlowOperation {
+    let indices: [Int]
+    let hasRestElement: Bool
+
+    init(indices: [Int], hasRestElement: Bool) {
+        assert(indices.count >= 1)
+        self.indices = indices
+        self.hasRestElement = hasRestElement
+        super.init(numInputs: 1, numInnerOutputs: indices.count, attributes: [.isBlockBegin, .isLoopBegin], contextOpened: [.script, .loop])
+    }
+}
+
+class EndForOf: ControlFlowOperation {
     init() {
         super.init(numInputs: 0, attributes: [.isBlockEnd, .isLoopEnd])
     }
 }
 
-class Break: Operation, TypeIdentifiable {
-    static let typeId = 54
+class LoopBreak: Operation {
     init() {
-        super.init(numInputs: 0, numOutputs: 0, attributes: [.isJump])
+        super.init(numInputs: 0, numOutputs: 0, attributes: [.isJump], requiredContext: [.script, .loop])
     }
 }
 
-class Continue: Operation, TypeIdentifiable {
-    static let typeId = 55
+class SwitchBreak: Operation {
     init() {
-        super.init(numInputs: 0, numOutputs: 0, attributes: [.isJump])
+        super.init(numInputs: 0, numOutputs: 0, attributes: [.isJump], requiredContext: [.script, .switchCase])
     }
 }
 
-class BeginTry: ControlFlowOperation, TypeIdentifiable {
-    static let typeId = 56
+class Continue: Operation {
+    init() {
+        super.init(numInputs: 0, numOutputs: 0, attributes: [.isJump], requiredContext: [.script, .loop])
+    }
+}
+
+class BeginTry: ControlFlowOperation {
     init() {
         super.init(numInputs: 0, attributes: [.isBlockBegin])
     }
 }
 
-class BeginCatch: ControlFlowOperation, TypeIdentifiable {
-    static let typeId = 57
+class BeginCatch: ControlFlowOperation {
     init() {
         super.init(numInputs: 0, numInnerOutputs: 1, attributes: [.isBlockBegin, .isBlockEnd])
     }
 }
 
-class EndTryCatch: ControlFlowOperation, TypeIdentifiable {
-    static let typeId = 58
+class BeginFinally: ControlFlowOperation {
+    init() {
+        super.init(numInputs: 0, attributes: [.isBlockBegin, .isBlockEnd])
+    }
+}
+
+class EndTryCatch: ControlFlowOperation {
     init() {
         super.init(numInputs: 0, attributes: [.isBlockEnd])
     }
 }
 
-class ThrowException: Operation, TypeIdentifiable {
-    static let typeId = 59
+class ThrowException: Operation {
     init() {
         super.init(numInputs: 1, numOutputs: 0, attributes: [.isJump])
     }
 }
 
+/// Generates a block of instructions, which is lifted to a string literal, that is a suitable as an argument to eval()
+class BeginCodeString: Operation {
+    init() {
+        super.init(numInputs: 0, numOutputs: 1, attributes: [.isBlockBegin], contextOpened: .script)
+    }
+}
+
+class EndCodeString: Operation {
+    init() {
+        super.init(numInputs: 0, numOutputs: 0, attributes: [.isBlockEnd])
+    }
+}
+
+/// Generates a block of instructions, which is lifted to a block statement.
+class BeginBlockStatement: Operation {
+    init() {
+        super.init(numInputs: 0, numOutputs: 0, attributes: [.isBlockBegin, .propagatesSurroundingContext], contextOpened: .script)
+    }
+}
+
+class EndBlockStatement: Operation {
+    init() {
+        super.init(numInputs: 0, numOutputs: 0, attributes: [.isBlockEnd])
+    }
+}
+
 /// Internal operations.
 ///
-/// These are never emitted through a code generator and are never mutated.
-/// In fact, these will never appear in a program that has been added to the corpus.
-/// Instead they are used in programs emitted by the fuzzer backend for various
-/// internal purposes, e.g. to retrieve type information for a variable.
+/// These can be used for internal fuzzer operations but will not appear in the corpus.
 class InternalOperation: Operation {
     init(numInputs: Int) {
         super.init(numInputs: numInputs, numOutputs: 0, attributes: [.isInternal])
@@ -705,52 +1140,12 @@ class InternalOperation: Operation {
 }
 
 /// Writes the argument to the output stream.
-class Print: InternalOperation, TypeIdentifiable {
-    static let typeId = 60
+class Print: InternalOperation {
     init() {
         super.init(numInputs: 1)
     }
 }
 
-/// Writes the type of the input value to the output stream.
-class InspectType: InternalOperation, TypeIdentifiable {
-    static let typeId = 61
-    init() {
-        super.init(numInputs: 1)
-    }
-}
-
-/// Writes the properties and methods of the input value to the output stream.
-class InspectValue: InternalOperation, TypeIdentifiable {
-    static let typeId = 62
-    init() {
-        super.init(numInputs: 1)
-    }
-}
-
-/// Writes the globally accessible objects to the output stream.
-class EnumerateBuiltins: InternalOperation, TypeIdentifiable {
-    static let typeId = 63
-    init() {
-        super.init(numInputs: 0)
-    }
-}
-
-class CreateObjectWithValue: Operation, TypeIdentifiable {
-    static let typeId = 64
-    let propertyNames: [String]
-    let propertyValues: [String]
-
-    init(propertyNames: [String], propertyValues: [String]) {
-        self.propertyNames = propertyNames
-        self.propertyValues = propertyValues
-        var flags: Operation.Attributes = [.isVarargs, .isLiteral]
-        if propertyNames.count > 0 {
-            flags.insert(.isParametric)
-        }
-        super.init(numInputs: 0, numOutputs: 1, attributes: flags)
-    }
-}
 
 // Expose the name of an operation as instance and class variable
 extension Operation {
@@ -763,38 +1158,9 @@ extension Operation {
     }
 }
 
-// TODO think of a better mechanism for this?
-func Matches(_ op1: Operation, _ op2: Operation) -> Bool {
-    switch op1 {
-    case is BeginFunctionDefinition:
-        return op2 is EndFunctionDefinition
-    case is BeginWith:
-        return op2 is EndWith
-    case is BeginIf:
-        return op2 is BeginElse || op2 is EndIf
-    case is BeginElse:
-        return op2 is EndIf
-    case is BeginWhile:
-        return op2 is EndWhile
-    case is BeginDoWhile:
-        return op2 is EndDoWhile
-    case is BeginFor:
-        return op2 is EndFor
-    case is BeginForIn:
-        return op2 is EndForIn
-    case is BeginForOf:
-        return op2 is EndForOf
-    case is BeginTry:
-        return op2 is BeginCatch
-    case is BeginCatch:
-        return op2 is EndTryCatch
-    default:
-        fatalError()
-    }
-}
 
 /// This change the target object's type
-class Alter: Operation, TypeIdentifiable {
+class Alter: Operation {
     static let typeId = 64
     let typeName: String
     init(typeName: String) {
@@ -802,15 +1168,3 @@ class Alter: Operation, TypeIdentifiable {
         super.init(numInputs: 1, numOutputs: 1)
     }
 }
-
-/// This change the target object's type
-class Const: Operation, TypeIdentifiable {
-    static let typeId = 65
-    init() {
-        super.init(numInputs: 1, numOutputs: 1)
-    }
-}
-
-
-
-

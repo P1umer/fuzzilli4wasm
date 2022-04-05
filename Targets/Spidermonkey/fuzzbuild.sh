@@ -14,22 +14,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-autoconf2.13
-
 FLAGS="-fsanitize-coverage=trace-pc-guard -g -DJS_MORE_DETERMINISTIC"
 
-export CFLAGS=$FLAGS
 export CXXFLAGS=$FLAGS
-export LDFLAGS=$FLAGS
-export MOZ_CARGO_WRAP_LDFLAGS=$FLAGS
+export CC=clang-10
+export CXX=clang++-10
 
-export CC=clang
-export CXX=clang++
-
-export MOZ_LLVM_HACKS=1
-
-mkdir -p fuzzbuild_OPT.OBJ
+mkdir fuzzbuild_OPT.OBJ
 cd fuzzbuild_OPT.OBJ
-../configure --enable-debug --enable-optimize --disable-shared-js
+/bin/sh ../configure.in --enable-debug --enable-optimize --disable-shared-js --enable-js-fuzzilli
 
-make -j
+make -j$(getconf _NPROCESSORS_ONLN)

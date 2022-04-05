@@ -16,39 +16,37 @@
 ///
 /// Variables names (numbers) are local to a program. Different programs
 /// will have the same variable names referring to different things.
-public struct Variable: Hashable, CustomStringConvertible, Codable {
+public struct Variable: Hashable, CustomStringConvertible {
     // We assume that programs will always have less than 64k variables
     private let num: UInt16
-    
-    init(number: Int) {
+
+    public init(number: Int) {
         self.num = UInt16(number)
     }
-    
+
     public var number: Int {
         return Int(num)
     }
-    
+
     public var identifier: String {
         return "v\(number)"
     }
-    
+
     public var description: String {
         return identifier
     }
-    
+
     public static func ==(lhs: Variable, rhs: Variable) -> Bool {
         return lhs.number == rhs.number
     }
-    
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        self.num = try container.decode(UInt16.self)
-    }
-    
-    public func encode(to encoder: Encoder) throws {
-        var container = encoder.singleValueContainer()
-        try container.encode(num)
+
+    public static func isValidVariableNumber(_ number: Int) -> Bool {
+        return UInt16(exactly: number) != nil
     }
 }
 
-let maxNumberOfVariables = 0x10000
+extension Variable: Comparable {
+    public static func <(lhs: Variable, rhs: Variable) -> Bool {
+        return lhs.number < rhs.number
+    }
+}

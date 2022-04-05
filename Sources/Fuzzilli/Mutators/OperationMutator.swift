@@ -15,25 +15,50 @@
 /// A mutator that randomly mutates parameters of the Operations in the given program.
 public class OperationMutator: BaseInstructionMutator {
     public init() {
-        super.init(maxSimultaneousMutations: 3)
+        super.init(maxSimultaneousMutations: defaultMaxSimultaneousMutations)
     }
     
-    override public func canMutate(_ instr: Instruction) -> Bool {
-        return instr.isParametric && instr.isMutable
+    public override func canMutate(_ instr: Instruction) -> Bool {
+        return instr.isParametric
     }
 
-    override public func mutate(_ instr: Instruction, _ b: ProgramBuilder) {
+    public override func mutate(_ instr: Instruction, _ b: ProgramBuilder) {
         var newOp: Operation
         
-        switch instr.operation {
+        b.trace("Mutating next operation")
+
+        func replaceRandomElement<T>(in set: inout Set<T>, generatingRandomValuesWith generator: () -> T) {
+            guard let removedElem = set.randomElement() else { return }
+            set.remove(removedElem)
+
+            for _ in 0...5 {
+                let newElem = generator()
+                // Ensure that we neither add an element that already exists nor add one that we just removed
+                if !set.contains(newElem) && newElem != removedElem {
+                    set.insert(newElem)
+                    return
+                }
+            }
+
+            // Failed to insert a new element, so just insert the removed element again as we must not change the size of the set
+            set.insert(removedElem)
+        }
+        
+        switch instr.op {
         case is LoadInteger:
             newOp = LoadInteger(value: b.genInt())
-        case is LoadNumber:
-            newOp = LoadNumber(value: b.genInt())
+        case is LoadBigInt:
+            newOp = LoadBigInt(value: b.genInt())
         case is LoadFloat:
             newOp = LoadFloat(value: b.genFloat())
         case is LoadString:
             newOp = LoadString(value: b.genString())
+        case let op as LoadRegExp:
+            if probability(0.5) {
+                newOp = LoadRegExp(value: b.genRegExp(), flags: op.flags)
+            } else {
+                newOp = LoadRegExp(value: op.value, flags: b.genRegExpFlags())
+            }
         case let op as LoadBoolean:
             newOp = LoadBoolean(value: !op.value)
         case let op as CreateObject:
@@ -61,47 +86,120 @@ public class OperationMutator: BaseInstructionMutator {
             newOp = LoadProperty(propertyName: b.genPropertyNameForRead())
         case is StoreProperty:
             newOp = StoreProperty(propertyName: b.genPropertyNameForWrite())
+        case is StorePropertyWithBinop:
+            newOp = StorePropertyWithBinop(propertyName: b.genPropertyNameForWrite(), operator: chooseUniform(from: allBinaryOperators))
         case is DeleteProperty:
             newOp = DeleteProperty(propertyName: b.genPropertyNameForWrite())
         case is LoadElement:
             newOp = LoadElement(index: b.genIndex())
         case is StoreElement:
             newOp = StoreElement(index: b.genIndex())
+        case is StoreElementWithBinop:
+            newOp = StoreElementWithBinop(index: b.genIndex(), operator: chooseUniform(from: allBinaryOperators))
+        case is StoreComputedPropertyWithBinop:
+            newOp = StoreComputedPropertyWithBinop(operator: chooseUniform(from: allBinaryOperators))
         case is DeleteElement:
             newOp = DeleteElement(index: b.genIndex())
         case let op as CallMethod:
-            newOp = CallMethod(methodName: b.genMethodName(), numArguments: op.numArguments)
-        case let op as CallFunctionWithSpread:
             var spreads = op.spreads
             if spreads.count > 0 {
                 let idx = Int.random(in: 0..<spreads.count)
                 spreads[idx] = !spreads[idx]
             }
-            newOp = CallFunctionWithSpread(numArguments: op.numArguments, spreads: spreads)
+            newOp = CallMethod(methodName: b.genMethodName(), numArguments: op.numArguments, spreads: spreads)
+        case let op as CallComputedMethod:
+            var spreads = op.spreads
+            if spreads.count > 0 {
+                let idx = Int.random(in: 0..<spreads.count)
+                spreads[idx] = !spreads[idx]
+            }
+            newOp = CallComputedMethod(numArguments: op.numArguments, spreads: spreads)
+        case let op as CallFunction:
+            var spreads = op.spreads
+            if spreads.count > 0 {
+                let idx = Int.random(in: 0..<spreads.count)
+                spreads[idx] = !spreads[idx]
+            }
+            newOp = CallFunction(numArguments: op.numArguments, spreads: spreads)
+        case let op as Construct:
+            var spreads = op.spreads
+            if spreads.count > 0 {
+                let idx = Int.random(in: 0..<spreads.count)
+                spreads[idx] = !spreads[idx]
+            }
+            newOp = Construct(numArguments: op.numArguments, spreads: spreads)
         case is UnaryOperation:
             newOp = UnaryOperation(chooseUniform(from: allUnaryOperators))
         case is BinaryOperation:
             newOp = BinaryOperation(chooseUniform(from: allBinaryOperators))
+        case is ReassignWithBinop:
+            newOp = ReassignWithBinop(chooseUniform(from: allBinaryOperators))
+        case let op as DestructArray:
+            var newIndices = Set(op.indices)
+            replaceRandomElement(in: &newIndices, generatingRandomValuesWith: { return Int.random(in: 0..<10) })
+            newOp = DestructArray(indices: newIndices.sorted(), hasRestElement: !op.hasRestElement)
+        case let op as DestructArrayAndReassign:
+            var newIndices = Set(op.indices)
+            replaceRandomElement(in: &newIndices, generatingRandomValuesWith: { return Int.random(in: 0..<10) })
+            newOp = DestructArrayAndReassign(indices: newIndices.sorted(), hasRestElement: !op.hasRestElement)
+        case let op as DestructObject:
+            var newProperties = Set(op.properties)
+            replaceRandomElement(in: &newProperties, generatingRandomValuesWith: { return b.genPropertyNameForRead() })
+            newOp = DestructObject(properties: newProperties.sorted(), hasRestElement: !op.hasRestElement)
+        case let op as DestructObjectAndReassign:
+            var newProperties = Set(op.properties)
+            replaceRandomElement(in: &newProperties, generatingRandomValuesWith: { return b.genPropertyNameForRead() })
+            newOp = DestructObjectAndReassign(properties: newProperties.sorted(), hasRestElement: !op.hasRestElement)
         case is Compare:
             newOp = Compare(chooseUniform(from: allComparators))
         case is LoadFromScope:
             newOp = LoadFromScope(id: b.genPropertyNameForRead())
         case is StoreToScope:
             newOp = StoreToScope(id: b.genPropertyNameForWrite())
+        /*case let op as BeginClassMethodDefinition: TODO(saelo)
+            // TODO also mutate the signature?
+            newOp = BeginClassMethodDefinition(name: b.genMethodName(), signature: op.signature)*/
+        case let op as CallSuperMethod:
+            newOp = CallSuperMethod(methodName: b.genMethodName(), numArguments: op.numArguments)
+        case let op as CallSuperConstructor:
+            var spreads = op.spreads
+            if spreads.count > 0 {
+                let idx = Int.random(in: 0..<spreads.count)
+                spreads[idx] = !spreads[idx]
+            }
+            newOp = CallSuperConstructor(numArguments: op.numArguments, spreads: spreads)
+        case is LoadSuperProperty:
+            newOp = LoadSuperProperty(propertyName: b.genPropertyNameForRead())
+        case is StoreSuperProperty:
+            newOp = StoreSuperProperty(propertyName: b.genPropertyNameForWrite())
+        case is StoreSuperPropertyWithBinop:
+            newOp = StoreSuperPropertyWithBinop(propertyName: b.genPropertyNameForWrite(), operator: chooseUniform(from: allBinaryOperators))    
         case is BeginWhile:
             newOp = BeginWhile(comparator: chooseUniform(from: allComparators))
-        case is EndDoWhile:
-            newOp = EndDoWhile(comparator: chooseUniform(from: allComparators))
+        case is BeginDoWhile:
+            newOp = BeginDoWhile(comparator: chooseUniform(from: allComparators))
         case let op as BeginFor:
             if probability(0.5) {
                 newOp = BeginFor(comparator: chooseUniform(from: allComparators), op: op.op)
             } else {
                 newOp = BeginFor(comparator: op.comparator, op: chooseUniform(from: allBinaryOperators))
             }
+        case let op as BeginPlainFunctionDefinition:
+            newOp = BeginPlainFunctionDefinition(signature: op.signature, isStrict: !op.isStrict)
+        case let op as BeginGeneratorFunctionDefinition:
+            newOp = BeginGeneratorFunctionDefinition(signature: op.signature, isStrict: !op.isStrict)
+        case let op as BeginAsyncFunctionDefinition:
+            newOp = BeginAsyncFunctionDefinition(signature: op.signature, isStrict: !op.isStrict)
+        case let op as BeginAsyncGeneratorFunctionDefinition:
+            newOp = BeginAsyncGeneratorFunctionDefinition(signature: op.signature, isStrict: !op.isStrict)
+        case let op as BeginArrowFunctionDefinition:
+            newOp = BeginArrowFunctionDefinition(signature: op.signature, isStrict: !op.isStrict)
+        case let op as BeginAsyncArrowFunctionDefinition:
+            newOp = BeginAsyncArrowFunctionDefinition(signature: op.signature, isStrict: !op.isStrict)
         default:
-            fatalError("[OperationMutator] Unhandled Operation: \(type(of: instr.operation))")
+            fatalError("Unhandled Operation: \(type(of: instr.op))")
         }
-                
-        b.adopt(Instruction(operation: newOp, inouts: instr.inouts))
+
+        b.adopt(Instruction(newOp, inouts: instr.inouts), keepTypes: false)
     }
 }

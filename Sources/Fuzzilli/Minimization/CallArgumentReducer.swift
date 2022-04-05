@@ -21,42 +21,58 @@ struct CallArgumentReducer: Reducer {
     }
     
     // TODO probably should remove as much as it can?
-    func reduce(_ program: Program, with verifier: ReductionVerifier) -> Program {
-        for instr in program {
-            switch instr.operation {
+    func reduce(_ code: inout Code, with verifier: ReductionVerifier) {
+        for instr in code {
+            switch instr.op {
             case let op as CallFunction:
                 guard op.numArguments > minArgCount else {
                     break
                 }
                 
-                let newOp = CallFunction(numArguments: op.numArguments - 1)
-                let newInstr = Instruction(operation: newOp, output: instr.output, inputs: Array(instr.inputs.dropLast()))
-                verifier.tryReplacing(instructionAt: instr.index, with: newInstr, in: program)
+                let newOp = CallFunction(numArguments: op.numArguments - 1, spreads: op.spreads.dropLast())
+                let newInstr = Instruction(newOp, output: instr.output, inputs: Array(instr.inputs.dropLast()))
+                verifier.tryReplacing(instructionAt: instr.index, with: newInstr, in: &code)
                 
             case let op as CallMethod:
                 guard op.numArguments > minArgCount else {
                     break
                 }
                 
-                let newOp = CallMethod(methodName: op.methodName, numArguments: op.numArguments - 1)
-                let newInstr = Instruction(operation: newOp, output: instr.output, inputs: Array(instr.inputs.dropLast()))
-                verifier.tryReplacing(instructionAt: instr.index, with: newInstr, in: program)
+                let newOp = CallMethod(methodName: op.methodName, numArguments: op.numArguments - 1, spreads: op.spreads.dropLast())
+                let newInstr = Instruction(newOp, output: instr.output, inputs: Array(instr.inputs.dropLast()))
+                verifier.tryReplacing(instructionAt: instr.index, with: newInstr, in: &code)
+
+            case let op as CallComputedMethod:
+                guard op.numArguments > minArgCount else {
+                    break
+                }
+
+                let newOp = CallComputedMethod(numArguments: op.numArguments - 1, spreads: op.spreads.dropLast())
+                let newInstr = Instruction(newOp, output: instr.output, inputs: Array(instr.inputs.dropLast()))
+                verifier.tryReplacing(instructionAt: instr.index, with: newInstr, in: &code)
                 
             case let op as Construct:
                 guard op.numArguments > minArgCount else {
                     break
                 }
                 
-                let newOp = Construct(numArguments: op.numArguments - 1)
-                let newInstr = Instruction(operation: newOp, output: instr.output, inputs: Array(instr.inputs.dropLast()))
-                verifier.tryReplacing(instructionAt: instr.index, with: newInstr, in: program)
+                let newOp = Construct(numArguments: op.numArguments - 1, spreads: op.spreads.dropLast())
+                let newInstr = Instruction(newOp, output: instr.output, inputs: Array(instr.inputs.dropLast()))
+                verifier.tryReplacing(instructionAt: instr.index, with: newInstr, in: &code)
+            
+            case let op as CallSuperConstructor:
+                guard op.numArguments > minArgCount else {
+                    break
+                }
+
+                let newOp = CallSuperConstructor(numArguments: op.numArguments - 1, spreads: op.spreads.dropLast())
+                let newInstr = Instruction(newOp, output: instr.output, inputs: Array(instr.inputs.dropLast()))
+                verifier.tryReplacing(instructionAt: instr.index, with: newInstr, in: &code)
                 
             default:
                 break
             }
             
         }
-        
-        return program
     }
 }
