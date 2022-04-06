@@ -327,10 +327,10 @@ public let CodeGenerators: [CodeGenerator] = [
 //        b.callFunction(f, withArgs: arguments)
 //    },
 //
-//    CodeGenerator("ConstructorCallGenerator", input: .constructor()) { b, c in
-//        guard let arguments = b.randCallArguments(for: c) else { return }
-//        b.construct(c, withArgs: arguments)
-//    },
+    CodeGenerator("ConstructorCallGenerator", input: .constructor()) { b, c in
+        guard let arguments = b.randCallArguments(for: c) else { return }
+        b.construct(c, withArgs: arguments)
+    },
 //
 //    CodeGenerator("FunctionCallWithSpreadGenerator", input: .function()) { b, f in
 //        // We cannot currently track element types of Arrays and other Iterable objects and so cannot properly determine argument types when spreading.

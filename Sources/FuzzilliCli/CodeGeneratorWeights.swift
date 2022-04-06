@@ -63,7 +63,7 @@ let codeGeneratorWeights = [
 //    "MethodCallWithSpreadGenerator":            0,
 //    "ComputedMethodCallGenerator":              0,
 //    "ComputedMethodCallWithSpreadGenerator":    0,
-//    "ConstructorCallGenerator":                 0,
+    "ConstructorCallGenerator":                 10,
 //    "ConstructorCallWithSpreadGenerator":       0,
 //    "UnaryOperationGenerator":                  0,
 //    "BinaryOperationGenerator":                 0,

@@ -95,9 +95,9 @@ public class JavaScriptEnvironment: ComponentBase, Environment {
         // it is best to either just disable the builtin that exposes it (e.g. Map constructor) or
         // selectively disable methods/properties by commenting out parts of the ObjectGroup and
         // Type definitions at the end of this file.
-//        registerObjectGroup(.jsStrings)
-//        registerObjectGroup(.jsPlainObjects)
-//        registerObjectGroup(.jsArrays)
+        registerObjectGroup(.jsStrings)
+        registerObjectGroup(.jsPlainObjects)
+        registerObjectGroup(.jsArrays)
 //        registerObjectGroup(.jsPromises)
 //        registerObjectGroup(.jsRegExps)
 //        registerObjectGroup(.jsFunctions)
@@ -112,10 +112,10 @@ public class JavaScriptEnvironment: ComponentBase, Environment {
 //        }
 //        registerObjectGroup(.jsDataViews)
 //
-//        registerObjectGroup(.jsObjectConstructor)
+        registerObjectGroup(.jsObjectConstructor)
 //        registerObjectGroup(.jsPromiseConstructor)
-//        registerObjectGroup(.jsArrayConstructor)
-//        registerObjectGroup(.jsStringConstructor)
+        registerObjectGroup(.jsArrayConstructor)
+        registerObjectGroup(.jsStringConstructor)
 //        registerObjectGroup(.jsSymbolConstructor)
 //        registerObjectGroup(.jsBigIntConstructor)
 //        registerObjectGroup(.jsBooleanConstructor)
@@ -164,10 +164,10 @@ public class JavaScriptEnvironment: ComponentBase, Environment {
         // Register builtins that should be available for fuzzing.
         // Here it is easy to selectively disable/enable some APIs for fuzzing by
         // just commenting out the corresponding lines.
-//        registerBuiltin("Object", ofType: .jsObjectConstructor)
-//        registerBuiltin("Array", ofType: .jsArrayConstructor)
+        registerBuiltin("Object", ofType: .jsObjectConstructor)
+        registerBuiltin("Array", ofType: .jsArrayConstructor)
 //        registerBuiltin("Function", ofType: .jsFunctionConstructor)
-//        registerBuiltin("String", ofType: .jsStringConstructor)
+        registerBuiltin("String", ofType: .jsStringConstructor)
 //        registerBuiltin("Boolean", ofType: .jsBooleanConstructor)
 //        registerBuiltin("Number", ofType: .jsNumberConstructor)
 //        registerBuiltin("Symbol", ofType: .jsSymbolConstructor)
@@ -323,7 +323,7 @@ public class JavaScriptEnvironment: ComponentBase, Environment {
         if let type = extraTypes[typeName] {
             return type
         } else {
-            logger.warning("Missing type for builtin \(typeName)")
+            logger.warning("Missing type for extraType \(typeName)")
             return .unknown
         }
     }
@@ -1313,7 +1313,7 @@ public extension ObjectGroup {
         name: "WebAssembly.Global",
         instanceType: .GlobalWasmObject,
         properties: [
-            "value" : .number,
+            "value"      : .number,
             "__proto__"  : .object(),
         ],
         methods: [
@@ -1326,7 +1326,7 @@ public extension ObjectGroup {
         name: "WebAssembly.Table",
         instanceType: .TableWasmObject,
         properties: [
-            "length" : .number,
+            "length"     : .number,
             "__proto__"  : .object(),
         ],
         methods: [
@@ -1340,8 +1340,8 @@ public extension ObjectGroup {
         name: "WebAssembly.Memory",
         instanceType: .MemoryWasmObject,
         properties: [
-            "buffer" : .jsArray,
-            "__proto__"  : .object(),
+            "buffer"      : .jsArray,
+            "__proto__"   : .object(),
         ],
         methods: [
             "grow"        : [.plain(.integer)] => .number,
