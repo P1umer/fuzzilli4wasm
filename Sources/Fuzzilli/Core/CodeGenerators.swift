@@ -884,21 +884,23 @@ public let CodeGenerators: [CodeGenerator] = [
     // BEGIN WASM FEATURE
     //
     
-    CodeGenerator("GlobalDescriptorFloatGenerator") { b in
-        var initialProperties = [String: Variable]()
-        initialProperties = ["value": Bool.random() ? b.loadString("f32") : b.loadString("f64"), "mutable": Bool.random() ? b.loadString("true"): b.loadString("false")]
-        let GlobalDescriptorFloatObject = b.createObject(with: initialProperties)
-        b.alter(GlobalDescriptorFloatObject, "GlobalDescriptorFloatObject")
-    },
-    
-    CodeGenerator("GlobalDescriptorIntGenerator") { b in
+    CodeGenerator("GlobalDescriptorIntObjectGenerator") { b in
         var initialProperties = [String: Variable]()
         initialProperties = ["value": Bool.random() ? b.loadString("i32") : b.loadString("i64"), "mutable": Bool.random() ? b.loadString("true"): b.loadString("false")]
+        
         let GlobalDescriptorIntObject = b.createObject(with: initialProperties)
         b.alter(GlobalDescriptorIntObject, "GlobalDescriptorIntObject")
     },
     
-    CodeGenerator("TableDescriptorGenerator") { b in
+    CodeGenerator("GlobalDescriptorFloatObjectGenerator") { b in
+        var initialProperties = [String: Variable]()
+        initialProperties = ["value": Bool.random() ? b.loadString("f32") : b.loadString("f64"), "mutable": Bool.random() ? b.loadString("true"): b.loadString("false")]
+        
+        let GlobalDescriptorFloatObject = b.createObject(with: initialProperties)
+        b.alter(GlobalDescriptorFloatObject, "GlobalDescriptorFloatObject")
+    },
+    
+    CodeGenerator("TableDescriptorObjectGenerator") { b in
         var initialProperties = [String: Variable]()
         
         withEqualProbability({
@@ -911,7 +913,7 @@ public let CodeGenerators: [CodeGenerator] = [
         b.alter(TableDescriptorObject, "TableDescriptorObject")
     },
     
-    CodeGenerator("MemoryDescriptorGenerator") { b in
+    CodeGenerator("MemoryDescriptorObjectGenerator") { b in
         var initialProperties = [String: Variable]()
         
         withEqualProbability({
@@ -923,32 +925,25 @@ public let CodeGenerators: [CodeGenerator] = [
         let MemoryDescriptorObject = b.createObject(with: initialProperties)
         b.alter(MemoryDescriptorObject, "MemoryDescriptorObject")
     },
-//    public func MemoryDescriptor(_ b: ProgramBuilder) {
-//        var initialProperties = [String: String]()
-//        withEqualProbability({
-//            initialProperties = ["initial": String(Int.random(in: 0...9))]
-//        }, {
-//            initialProperties = ["initial": String(Int.random(in: 0...9)), "maximum": String(Int.random(in: 9...999))]
-//        })
-//
-//        let MemoryDescriptor = b.createObjectWithValue(with: initialProperties)
-//        b.alter(MemoryDescriptor, "MemoryDescriptor")
-//
-//    }
     
-
-
-//    public func TableDescriptor(_ b: ProgramBuilder) {
-//        var initialProperties = [String: String]()
+    CodeGenerator("GlobalWasmFloatObjectGenerator", input: .GlobalDescriptorFloatObject) { b, obj in
+        b.loadProperty("mutable1", of: obj)
+    },
+    
+    CodeGenerator("GlobalWasmIntObjectGenerator", input: .GlobalDescriptorIntObject) { b, obj in
+        b.loadProperty("mutable1", of: obj)
+    },
+    
+//    public func GlobalWasmObjectGenerator(_ b: ProgramBuilder) {
+//        var arguments = [Variable]()
 //        withEqualProbability({
-//           initialProperties = ["element": "\"anyfunc\"", "initial": String(CInt.random(in: 0...42))]
+//            arguments = [b.generalWasmObject(.GlobalDescriptorFloat), b.loadFloat(b.genFloat())]
 //        }, {
-//           initialProperties = ["element": "\"anyfunc\"", "initial": String(CInt.random(in: 0...42)), "maximum": String(CInt.random(in: 43...99))]
+//            arguments = [b.generalWasmObject(.GlobalDescriptorInt), b.loadNumber(b.genInt())]
 //        })
 //
-//        let TableDescriptor = b.createObjectWithValue(with: initialProperties)
-//        b.alter(TableDescriptor, "TableDescriptor")
-//
+//        let constructor = b.loadBuiltin("WebAssembly.Global") //type: GlobalWasmConstructor
+//        b.construct(constructor, withArgs: arguments)
 //    }
     
     //

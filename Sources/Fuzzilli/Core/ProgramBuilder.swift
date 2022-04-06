@@ -79,7 +79,24 @@ public class ProgramBuilder {
     public var hasVisibleVariables: Bool {
         return scopeAnalyzer.visibleVariables.count > 0
     }
-
+    
+    // BEGIN WASM FEATURE
+    private var wasmType:[Type] = [
+                                   .GlobalWasmObject,
+                                   .TableWasmObject,
+                                   .MemoryWasmObject,
+                                   .ModuleWasmObject,
+                                   .InstanceWasmObject,
+//                                   .FuncRefObject,
+                                   .ImportObject,
+                                   .GlobalDescriptorIntObject,
+                                   .GlobalDescriptorFloatObject,
+                                   .TableDescriptorObject,
+                                   .MemoryDescriptorObject,
+//                                   .jsTypedArray("Uint8Array")
+    ]
+    // END WASM FEATURE
+    
     /// Constructs a new program builder for the given fuzzer.
     init(for fuzzer: Fuzzer, parent: Program?, interpreter: AbstractInterpreter?, mode: Mode) {
         self.fuzzer = fuzzer
@@ -277,6 +294,12 @@ public class ProgramBuilder {
     public func randVar(ofType type: Type, excludeInnermostScope: Bool = false) -> Variable? {
         var wantedType = type
 
+        // BEGIN WASM FEATURE
+        if wasmType.contains(wantedType){
+             return generalWasmObject(wantedType)
+        }
+        // END WASM FEATURE
+        
         // As query/input type, .unknown is treated as .anything.
         // This for example simplifies code that is attempting to replace a given variable with another one with a "compatible" type.
         // If the real type of the replaced variable is unknown, it doesn't make sense to search for another variable of unknown type, so just use .anything.
@@ -1675,8 +1698,50 @@ public class ProgramBuilder {
         }
     }
     
+    // BEGIN WASM FEATURE
+    
     @discardableResult
     public func alter(_ input: Variable , _ typeName: String) -> Variable {
         return perform(Alter(typeName: typeName), withInputs: [input]).input(0)
     }
+    
+    @discardableResult
+    public func generalWasmObject(_ t: Type) -> Variable {
+        let GeneralWasmObject = randVarInternal(filter: { self.type(of: $0).Is(t) })
+        if GeneralWasmObject == nil {
+            switch t {
+            case .GlobalWasmObject:
+                self.run(CodeGenerators.get("GlobalWasmObjectGenerator"))
+            case .TableWasmObject:
+                self.run(CodeGenerators.get("TableWasmObjectGenerator"))
+            case .MemoryWasmObject:
+                self.run(CodeGenerators.get("MemoryWasmObjectGenerator"))
+            case .ModuleWasmObject:
+                self.run(CodeGenerators.get("ModuleWasmObjectGenerator"))
+            case .ImportObject:
+                self.run(CodeGenerators.get("ImportObjectGenerator"))
+            case .InstanceWasmObject:
+                self.run(CodeGenerators.get("InstanceWasmObjectGenerator"))
+//            case .FuncRefObject:
+//                SpecialWasmObjectCallGenerator(self, .TableWasmObject, "get", [loadInt(Int.random(in: 0...42))])
+            case .GlobalDescriptorIntObject:
+                self.run(CodeGenerators.get("GlobalDescriptorIntObjectGenerator"))
+            case .GlobalDescriptorFloatObject:
+                self.run(CodeGenerators.get("GlobalDescriptorFloatObjectGenerator"))
+            case .TableDescriptorObject:
+                self.run(CodeGenerators.get("TableDescriptorObjectGenerator"))
+            case .MemoryDescriptorObject:
+                self.run(CodeGenerators.get("MemoryDescriptor"))
+//            case .jsTypedArray("Uint8Array"):
+//                BufferSourceGenerator(self)
+            default:
+                fatalError("Object Type is not supported")
+            }
+            return generalWasmObject(t)
+        }
+
+        return GeneralWasmObject!
+    }
+    
+    // END WASM FEATURE
 }

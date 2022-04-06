@@ -148,8 +148,8 @@ public class JavaScriptEnvironment: ComponentBase, Environment {
         registerObjectGroup(.ImportObjectWasmObject)
         registerObjectGroup(.InstanceWasmObject)
         registerObjectGroup(.FuncRefWasmObject)
-        registerObjectGroup(.GlobalDescriptorIntObject)
         registerObjectGroup(.GlobalDescriptorFloatObject)
+        registerObjectGroup(.GlobalDescriptorIntObject)
         registerObjectGroup(.TableDescriptorObject)
         registerObjectGroup(.MemoryDescriptorObject)
         
@@ -589,7 +589,7 @@ public extension Type {
 
     ///Type of Javascript GlobalDescriptorFloat
     static let GlobalDescriptorFloatObject = Type.object(ofGroup: "GlobalDescriptorFloatObject", withProperties: ["__proto__", "value", "mutable"])
-
+    
     ///Type of Javascript GlobalDescriptorInt
     static let GlobalDescriptorIntObject = Type.object(ofGroup: "GlobalDescriptorIntObject", withProperties: ["__proto__", "value", "mutable"])
 
@@ -1396,9 +1396,9 @@ public extension ObjectGroup {
         methods: [:]
     )
 
-    static let GlobalDescriptorFloatObject = ObjectGroup(
-        name: "GlobalDescriptorFloatObject",
-        instanceType: .GlobalDescriptorFloatObject,
+    static let GlobalDescriptorIntObject = ObjectGroup(
+        name: "GlobalDescriptorIntObject",
+        instanceType: .GlobalDescriptorIntObject,
         properties: [
             "__proto__"      : .object(),
             "value"          : .object(),
@@ -1406,10 +1406,10 @@ public extension ObjectGroup {
         ],
         methods: [:]
     )
-
-    static let GlobalDescriptorIntObject = ObjectGroup(
-        name: "GlobalDescriptorIntObject",
-        instanceType: .GlobalDescriptorIntObject,
+    
+    static let GlobalDescriptorFloatObject = ObjectGroup(
+        name: "GlobalDescriptorFloatObject",
+        instanceType: .GlobalDescriptorFloatObject,
         properties: [
             "__proto__"      : .object(),
             "value"          : .object(),
