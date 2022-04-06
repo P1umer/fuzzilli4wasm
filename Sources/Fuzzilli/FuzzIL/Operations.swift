@@ -1161,10 +1161,9 @@ extension Operation {
 
 /// This change the target object's type
 class Alter: Operation {
-    static let typeId = 64
     let typeName: String
     init(typeName: String) {
         self.typeName = typeName
-        super.init(numInputs: 1, numOutputs: 1)
+        super.init(numInputs: 1, numOutputs: 0)
     }
 }

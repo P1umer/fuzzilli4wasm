@@ -720,7 +720,8 @@ public class JavaScriptLifter: Lifter {
                 w.emit("fuzzilli('FUZZILLI_PRINT', \(input(0)));")
                 
             case is Alter:
-                w.emit("\(varDecl) \(instr.output) = \(input(0));")
+                continue;
+//                w.emit("\(varDecl) \(instr.output) = \(input(0));")
                 
             default:
                 fatalError("Unhandled Operation: \(type(of: instr.op))")

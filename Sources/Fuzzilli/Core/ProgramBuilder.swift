@@ -1677,6 +1677,6 @@ public class ProgramBuilder {
     
     @discardableResult
     public func alter(_ input: Variable , _ typeName: String) -> Variable {
-        return perform(Alter(typeName: typeName), withInputs: [input]).output
+        return perform(Alter(typeName: typeName), withInputs: [input]).input(0)
     }
 }

@@ -575,7 +575,7 @@ public struct AbstractInterpreter {
             set(instr.innerOutput, .unknown)
 
         case let op as Alter:
-            set(instr.output, environment.type(forTypeName: op.typeName))
+            set(instr.input(0), environment.type(forTypeName: op.typeName))
             
         default:
             // Only simple instructions and block instruction with inner outputs are handled here
