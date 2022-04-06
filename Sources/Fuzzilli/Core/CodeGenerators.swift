@@ -886,29 +886,57 @@ public let CodeGenerators: [CodeGenerator] = [
     
     CodeGenerator("GlobalDescriptorFloatGenerator") { b in
         var initialProperties = [String: Variable]()
-        initialProperties = ["value": Bool.random() ? b.loadString("\"f32\"") : b.loadString("\"f64\""), "mutable": Bool.random() ? b.loadString("true"): b.loadString("false")]
-        let GlobalDescriptorFloat = b.createObject(with: initialProperties)
-        b.alter(GlobalDescriptorFloat, "GlobalDescriptorFloatObject")
+        initialProperties = ["value": Bool.random() ? b.loadString("f32") : b.loadString("f64"), "mutable": Bool.random() ? b.loadString("true"): b.loadString("false")]
+        let GlobalDescriptorFloatObject = b.createObject(with: initialProperties)
+        b.alter(GlobalDescriptorFloatObject, "GlobalDescriptorFloatObject")
     },
     
-//    public func GlobalDescriptorFloatGenerator(_ b: ProgramBuilder) {
-//
-////        b.alter(GlobalDescriptorFloat, "GlobalDescriptorFloat")
-//    }
-
-//    CodeGenerator("GlobalDescriptorFloatGenerator") { b in
+    CodeGenerator("GlobalDescriptorIntGenerator") { b in
+        var initialProperties = [String: Variable]()
+        initialProperties = ["value": Bool.random() ? b.loadString("i32") : b.loadString("i64"), "mutable": Bool.random() ? b.loadString("true"): b.loadString("false")]
+        let GlobalDescriptorIntObject = b.createObject(with: initialProperties)
+        b.alter(GlobalDescriptorIntObject, "GlobalDescriptorIntObject")
+    },
+    
+    CodeGenerator("TableDescriptorGenerator") { b in
+        var initialProperties = [String: Variable]()
+        
+        withEqualProbability({
+           initialProperties = ["element": b.loadString("anyfunc"), "initial": b.loadString(String(CInt.random(in: 0...42)))]
+        }, {
+           initialProperties = ["element": b.loadString("anyfunc"), "initial": b.loadString(String(CInt.random(in: 0...42))), "maximum": b.loadString(String(CInt.random(in: 43...99)))]
+        })
+        
+        let TableDescriptorObject = b.createObject(with: initialProperties)
+        b.alter(TableDescriptorObject, "TableDescriptorObject")
+    },
+    
+    CodeGenerator("MemoryDescriptorGenerator") { b in
+        var initialProperties = [String: Variable]()
+        
+        withEqualProbability({
+           initialProperties = ["initial": b.loadString(String(CInt.random(in: 0...9)))]
+        }, {
+           initialProperties = ["initial": b.loadString(String(CInt.random(in: 0...9))), "maximum": b.loadString(String(Int.random(in: 9...999)))]
+        })
+        
+        let MemoryDescriptorObject = b.createObject(with: initialProperties)
+        b.alter(MemoryDescriptorObject, "MemoryDescriptorObject")
+    },
+//    public func MemoryDescriptor(_ b: ProgramBuilder) {
 //        var initialProperties = [String: String]()
-//        initialProperties = ["value": Bool.random() ? "\"f32\"" : "\"f64\"", "mutable": Bool.random() ? "true": "false"]
-//        let GlobalDescriptorFloat = b.createObjectWithValue(with: initialProperties)
-//        b.alter(GlobalDescriptorFloat, "GlobalDescriptorFloat")
-//    },
-//    public func GlobalDescriptorIntGenerator(_ b: ProgramBuilder) {
+//        withEqualProbability({
+//            initialProperties = ["initial": String(Int.random(in: 0...9))]
+//        }, {
+//            initialProperties = ["initial": String(Int.random(in: 0...9)), "maximum": String(Int.random(in: 9...999))]
+//        })
 //
-//       var initialProperties = [String: String]()
-//         initialProperties = ["value": Bool.random() ? "\"i32\"" : "\"i64\"", "mutable": Bool.random() ? "true": "false"]
-//         let GlobalDescriptorInt = b.createObjectWithValue(with: initialProperties)
-//         b.alter(GlobalDescriptorInt, "GlobalDescriptorInt")
+//        let MemoryDescriptor = b.createObjectWithValue(with: initialProperties)
+//        b.alter(MemoryDescriptor, "MemoryDescriptor")
+//
 //    }
+    
+
 
 //    public func TableDescriptor(_ b: ProgramBuilder) {
 //        var initialProperties = [String: String]()

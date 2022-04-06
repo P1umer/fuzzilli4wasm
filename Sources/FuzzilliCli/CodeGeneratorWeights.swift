@@ -120,6 +120,9 @@ let codeGeneratorWeights = [
     
     // BEGIN WASM FEATURE
     "GlobalDescriptorFloatGenerator":            10,
+    "GlobalDescriptorIntGenerator":              10,
+    "TableDescriptorGenerator":                  10,
+    "MemoryDescriptorGenerator":                 10,
     // END WASM FEATURE
     
 ]

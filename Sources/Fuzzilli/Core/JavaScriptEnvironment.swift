@@ -588,16 +588,16 @@ public extension Type {
     static let FuncRefObject = Type.object(ofGroup: "FuncRefObject")
 
     ///Type of Javascript GlobalDescriptorFloat
-    static let GlobalDescriptorFloatObject = Type.object(ofGroup: "GlobalDescriptorFloatObject")
+    static let GlobalDescriptorFloatObject = Type.object(ofGroup: "GlobalDescriptorFloatObject", withProperties: ["__proto__", "value", "mutable"])
 
     ///Type of Javascript GlobalDescriptorInt
-    static let GlobalDescriptorIntObject = Type.object(ofGroup: "GlobalDescriptorIntObject")
+    static let GlobalDescriptorIntObject = Type.object(ofGroup: "GlobalDescriptorIntObject", withProperties: ["__proto__", "value", "mutable"])
 
     ///Type of Javascript TableDescriptor
-    static let TableDescriptorObject = Type.object(ofGroup: "TableDescriptorObject")
+    static let TableDescriptorObject = Type.object(ofGroup: "TableDescriptorObject", withProperties: ["__proto__", "element", "initial", "maximum"])
 
     ///Type of Javascript TableDescriptor
-    static let MemoryDescriptorObject = Type.object(ofGroup: "MemoryDescriptorObject")
+    static let MemoryDescriptorObject = Type.object(ofGroup: "MemoryDescriptorObject", withProperties: ["__proto__", "initial", "maximum"])
 
     /// Type of Javascript Wasm Global object
     static let GlobalWasmObject = Type.object(ofGroup: "WebAssembly.Global", withProperties: ["__proto__", "value"], withMethods: ["toString", "valueOf"])
@@ -1399,28 +1399,45 @@ public extension ObjectGroup {
     static let GlobalDescriptorFloatObject = ObjectGroup(
         name: "GlobalDescriptorFloatObject",
         instanceType: .GlobalDescriptorFloatObject,
-        properties: [:],
+        properties: [
+            "__proto__"      : .object(),
+            "value"          : .object(),
+            "mutable"        : .boolean,
+        ],
         methods: [:]
     )
 
     static let GlobalDescriptorIntObject = ObjectGroup(
         name: "GlobalDescriptorIntObject",
         instanceType: .GlobalDescriptorIntObject,
-        properties: [:],
+        properties: [
+            "__proto__"      : .object(),
+            "value"          : .object(),
+            "mutable"        : .boolean,
+        ],
         methods: [:]
     )
 
     static let TableDescriptorObject = ObjectGroup(
         name: "TableDescriptorObject",
         instanceType: .TableDescriptorObject,
-        properties: [:],
+        properties: [
+            "__proto__"      : .object(),
+            "element"        : .object(),
+            "initial"        : .object(),
+            "maximum"        : .object(),
+        ],
         methods: [:]
     )
 
     static let MemoryDescriptorObject = ObjectGroup(
         name: "MemoryDescriptorObject",
         instanceType: .MemoryDescriptorObject,
-        properties: [:],
+        properties: [
+            "__proto__"      : .object(),
+            "initial"        : .object(),
+            "maximum"        : .object(),
+        ],
         methods: [:]
     )
     
