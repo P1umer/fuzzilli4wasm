@@ -107,9 +107,9 @@ public class JavaScriptEnvironment: ComponentBase, Environment {
 //        registerObjectGroup(.jsSets)
 //        registerObjectGroup(.jsWeakSets)
 //        registerObjectGroup(.jsArrayBuffers)
-//        for variant in ["Uint8Array", "Int8Array", "Uint16Array", "Int16Array", "Uint32Array", "Int32Array", "Float32Array", "Float64Array", "Uint8ClampedArray"] {
-//            registerObjectGroup(.jsTypedArrays(variant))
-//        }
+        for variant in ["Uint8Array", "Int8Array", "Uint16Array", "Int16Array", "Uint32Array", "Int32Array", "Float32Array", "Float64Array", "Uint8ClampedArray"] {
+            registerObjectGroup(.jsTypedArrays(variant))
+        }
 //        registerObjectGroup(.jsDataViews)
 //
         registerObjectGroup(.jsObjectConstructor)
@@ -177,9 +177,9 @@ public class JavaScriptEnvironment: ComponentBase, Environment {
 //            registerBuiltin(variant, ofType: .jsErrorConstructor(variant))
 //        }
 //        registerBuiltin("ArrayBuffer", ofType: .jsArrayBufferConstructor)
-//        for variant in ["Uint8Array", "Int8Array", "Uint16Array", "Int16Array", "Uint32Array", "Int32Array", "Float32Array", "Float64Array", "Uint8ClampedArray"] {
-//            registerBuiltin(variant, ofType: .jsTypedArrayConstructor(variant))
-//        }
+        for variant in ["Uint8Array", "Int8Array", "Uint16Array", "Int16Array", "Uint32Array", "Int32Array", "Float32Array", "Float64Array", "Uint8ClampedArray"] {
+            registerBuiltin(variant, ofType: .jsTypedArrayConstructor(variant))
+        }
 //        registerBuiltin("DataView", ofType: .jsDataViewConstructor)
 //        registerBuiltin("Date", ofType: .jsDateConstructor)
 //        registerBuiltin("Promise", ofType: .jsPromiseConstructor)
@@ -221,7 +221,7 @@ public class JavaScriptEnvironment: ComponentBase, Environment {
         registerBuiltin("WebAssembly.Global",   ofType: .GlobalWasmConstructor)
         registerBuiltin("WebAssembly.Table",    ofType: .TableWasmConstructor)
         registerBuiltin("WebAssembly.Memory",   ofType: .MemoryWasmConstructor)
-        registerBuiltin("WebAssembly.Module",   ofType: .ModuleWasmConstructor)
+        registerBuiltin("WebAssembly.Module",   ofType: .jsModuleWasmConstructor)
         registerBuiltin("WebAssembly.Instance", ofType: .InstanceWasmConstructor)
         
         // register for alter operation
@@ -576,7 +576,7 @@ public extension Type {
     static let MemoryWasmConstructor = Type.constructor([.plain(.object())] => .MemoryWasmObject)
 
     /// Type of Javascript Wasm Module object Constructor
-    static let ModuleWasmConstructor = Type.constructor([.plain(.jsTypedArray("Uint8Array"))] => .ModuleWasmObject) + .object(ofGroup: "ModuleWasmConstructor", withProperties: ["prototype"], withMethods: ["customSections", "exports", "imports"])
+    static let jsModuleWasmConstructor = Type.constructor([] => .ModuleWasmObject) + .object(ofGroup: "ModuleWasmConstructor", withProperties: ["prototype"], withMethods: ["customSections", "exports", "imports"])
 
     /// Type of Javascript Wasm Module Instance Constructor
     static let InstanceWasmConstructor = Type.constructor([.plain(.ModuleWasmObject), .plain(.ImportObject)] => .InstanceWasmObject)
@@ -1332,7 +1332,7 @@ public extension ObjectGroup {
         methods: [
             "get"         : [.plain(.integer)] => .FuncRefObject,
             "grow"        : [.plain(.integer)] => .number,
-            "set"         : [.plain(.integer)] => .unknown,
+            "set"         : [.plain(.integer), .plain(.FuncRefObject)] => .unknown,
         ]
     )
 
@@ -1359,7 +1359,7 @@ public extension ObjectGroup {
     
     static let ModuleWasmConstructor = ObjectGroup(
         name: "ModuleWasmConstructor",
-        instanceType: .ModuleWasmConstructor,
+        instanceType: .jsModuleWasmConstructor,
         properties: [
             "prototype" : .object()
         ],

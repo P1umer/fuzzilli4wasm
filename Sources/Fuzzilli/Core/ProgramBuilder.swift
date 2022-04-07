@@ -87,13 +87,13 @@ public class ProgramBuilder {
                                    .MemoryWasmObject,
                                    .ModuleWasmObject,
                                    .InstanceWasmObject,
-//                                   .FuncRefObject,
+                                   .FuncRefObject,
                                    .ImportObject,
                                    .GlobalDescriptorIntObject,
                                    .GlobalDescriptorFloatObject,
                                    .TableDescriptorObject,
                                    .MemoryDescriptorObject,
-//                                   .jsTypedArray("Uint8Array")
+                                   .jsTypedArray("Uint8Array"),
     ]
     // END WASM FEATURE
     
@@ -1711,7 +1711,11 @@ public class ProgramBuilder {
         if GeneralWasmObject == nil {
             switch t {
             case .GlobalWasmObject:
-                self.run(CodeGenerators.get("GlobalWasmObjectGenerator"))
+                withEqualProbability({
+                    self.run(CodeGenerators.get("GlobalWasmIntObjectGenerator"))
+                }, {
+                    self.run(CodeGenerators.get("GlobalWasmFloatObjectGenerator"))
+                })
             case .TableWasmObject:
                 self.run(CodeGenerators.get("TableWasmObjectGenerator"))
             case .MemoryWasmObject:
@@ -1722,8 +1726,8 @@ public class ProgramBuilder {
                 self.run(CodeGenerators.get("ImportObjectGenerator"))
             case .InstanceWasmObject:
                 self.run(CodeGenerators.get("InstanceWasmObjectGenerator"))
-//            case .FuncRefObject:
-//                SpecialWasmObjectCallGenerator(self, .TableWasmObject, "get", [loadInt(Int.random(in: 0...42))])
+            case .FuncRefObject:
+                self.run(CodeGenerators.get("FuncRefObjectGenerator"))
             case .GlobalDescriptorIntObject:
                 self.run(CodeGenerators.get("GlobalDescriptorIntObjectGenerator"))
             case .GlobalDescriptorFloatObject:
@@ -1731,9 +1735,9 @@ public class ProgramBuilder {
             case .TableDescriptorObject:
                 self.run(CodeGenerators.get("TableDescriptorObjectGenerator"))
             case .MemoryDescriptorObject:
-                self.run(CodeGenerators.get("MemoryDescriptor"))
-//            case .jsTypedArray("Uint8Array"):
-//                BufferSourceGenerator(self)
+                self.run(CodeGenerators.get("MemoryDescriptorObjectGenerator"))
+            case .jsTypedArray("Uint8Array"):
+                self.run(CodeGenerators.get("BufferSourceGenerator"))
             default:
                 fatalError("Object Type is not supported")
             }

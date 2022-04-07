@@ -27,7 +27,7 @@ let codeGeneratorWeights = [
 //    "NullGenerator":                            0,
 //    "ThisGenerator":                            0,
 //    "ArgumentsGenerator":                       0,
-    "BuiltinGenerator":                        10,
+//    "BuiltinGenerator":                        10,
 //    "ObjectGenerator":                          0,
 //    "ArrayGenerator":                           0,
 //    "ObjectWithSpreadGenerator":                0,
@@ -59,11 +59,11 @@ let codeGeneratorWeights = [
 //    "ComputedPropertyRemovalGenerator":         0,
 //    "FunctionCallGenerator":                    0,
 //    "FunctionCallWithSpreadGenerator":          0,
-    "MethodCallGenerator":                      10,
+    "MethodCallGenerator":                      1,
 //    "MethodCallWithSpreadGenerator":            0,
 //    "ComputedMethodCallGenerator":              0,
 //    "ComputedMethodCallWithSpreadGenerator":    0,
-    "ConstructorCallGenerator":                 10,
+    "ConstructorCallGenerator":                 1,
 //    "ConstructorCallWithSpreadGenerator":       0,
 //    "UnaryOperationGenerator":                  0,
 //    "BinaryOperationGenerator":                 0,
@@ -119,12 +119,27 @@ let codeGeneratorWeights = [
 //    "MathOperationGenerator":                   0,
     
     // BEGIN WASM FEATURE
-    "GlobalDescriptorIntObjectGenerator":              10,
-    "GlobalDescriptorFloatObjectGenerator":            10,
-    "TableDescriptorObjectGenerator":                  10,
-    "MemoryDescriptorObjectGenerator":                 10,
-    "GlobalWasmFloatObjectGenerator":                  10,
-    "GlobalWasmIntObjectGenerator":                    10,
+    "GlobalDescriptorIntObjectGenerator":              1,
+    "GlobalDescriptorFloatObjectGenerator":            1,
+    "TableDescriptorObjectGenerator":                  1,
+    "MemoryDescriptorObjectGenerator":                 1,
+    
+    "GlobalWasmFloatObjectGenerator":                  1,
+    "GlobalWasmIntObjectGenerator":                    1,
+    "TableWasmObjectGenerator":                        1,
+    "MemoryWasmObjectGenerator":                       1,
+    "ModuleWasmObjectGenerator":                       1,
+    "InstanceWasmObjectGenerator":                     1,
+    "ImportObjectGenerator":                           1,
+    "BufferSourceGenerator":                           1,
+    "FuncRefObjectGenerator":                          1,
+    
+    "GlobalWasmObjectCallGenerator":                   100,
+    "TableWasmObjectCallGenerator":                    100,
+    "MemoryWasmObjectCallGenerator":                   100,
+    "InstanceWasmObjectCallGenerator":                 100,
+    "ModuleConstructorWasmObjectCallGenerator":        100,
+    
     // END WASM FEATURE
     
 ]

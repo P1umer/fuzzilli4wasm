@@ -120,9 +120,9 @@ public let CodeGenerators: [CodeGenerator] = [
 //        b.createTemplateString(from: parts, interpolating: interpolatedValues)
 //    },
 //
-    CodeGenerator("BuiltinGenerator") { b in
-        b.loadBuiltin(b.genBuiltinName())
-    },
+//    CodeGenerator("BuiltinGenerator") { b in
+//        b.loadBuiltin(b.genBuiltinName())
+//    },
 //
 //    // For functions, we always generate one random instruction and one return instruction as function body.
 //    // This ensures that generating one random instruction does not accidentially generate multiple instructions
@@ -927,25 +927,124 @@ public let CodeGenerators: [CodeGenerator] = [
     },
     
     CodeGenerator("GlobalWasmFloatObjectGenerator", input: .GlobalDescriptorFloatObject) { b, obj in
-        b.loadProperty("mutable1", of: obj)
+        var arguments = [Variable]()
+        arguments = [obj, b.loadFloat(b.genFloat())]
+        let constructor = b.loadBuiltin("WebAssembly.Global") //type: GlobalWasmConstructor
+        b.construct(constructor, withArgs: arguments)
     },
     
     CodeGenerator("GlobalWasmIntObjectGenerator", input: .GlobalDescriptorIntObject) { b, obj in
-        b.loadProperty("mutable1", of: obj)
+        var arguments = [Variable]()
+        arguments = [obj, b.loadInt(b.genInt())]
+        let constructor = b.loadBuiltin("WebAssembly.Global") //type: GlobalWasmConstructor
+        b.construct(constructor, withArgs: arguments)
     },
     
-//    public func GlobalWasmObjectGenerator(_ b: ProgramBuilder) {
-//        var arguments = [Variable]()
-//        withEqualProbability({
-//            arguments = [b.generalWasmObject(.GlobalDescriptorFloat), b.loadFloat(b.genFloat())]
-//        }, {
-//            arguments = [b.generalWasmObject(.GlobalDescriptorInt), b.loadNumber(b.genInt())]
-//        })
-//
-//        let constructor = b.loadBuiltin("WebAssembly.Global") //type: GlobalWasmConstructor
-//        b.construct(constructor, withArgs: arguments)
-//    }
+    CodeGenerator("TableWasmObjectGenerator", input: .TableDescriptorObject) { b, obj in
+        var arguments = [Variable]()
+        arguments = [obj]
+        let constructor = b.loadBuiltin("WebAssembly.Table")
+        b.construct(constructor, withArgs: arguments)
+    },
     
+    CodeGenerator("MemoryWasmObjectGenerator", input: .MemoryDescriptorObject) { b, obj in
+        var arguments = [Variable]()
+        arguments = [obj]
+        let constructor = b.loadBuiltin("WebAssembly.Memory")
+        b.construct(constructor, withArgs: arguments)
+    },
+
+    CodeGenerator("ModuleWasmObjectGenerator", input: .jsTypedArray("Uint8Array")) { b, obj in
+        var arguments = [Variable]()
+        arguments = [obj]
+        let constructor = b.loadBuiltin("WebAssembly.Module")
+        b.construct(constructor, withArgs: arguments)
+    },
+                  
+    CodeGenerator("InstanceWasmObjectGenerator", inputs: (.ModuleWasmObject, .ImportObject)) { b, obj1, obj2 in
+        var arguments = [Variable]()
+        arguments = [obj1, obj2]
+        let constructor = b.loadBuiltin("WebAssembly.Instance")
+        b.construct(constructor, withArgs: arguments)
+    },
+    
+    CodeGenerator("ImportObjectGenerator") { b in
+        var initialProperties = [String: Variable]()
+        withEqualProbability({
+            initialProperties = [:]
+        }, {
+            let MemoryWasmObject = b.generalWasmObject(.MemoryWasmObject)
+            initialProperties = ["mem": MemoryWasmObject]
+            initialProperties = ["js": b.createObject(with: initialProperties)]
+        }, {
+            let TableWasmObject = b.generalWasmObject(.TableWasmObject)
+            initialProperties = ["tbl": TableWasmObject]
+            initialProperties = ["js": b.createObject(with: initialProperties)]
+        })
+
+        let o = b.createObject(with: initialProperties)
+        b.alter(o, "ImportObject")
+    },
+    
+    CodeGenerator("FuncRefObjectGenerator", input: .TableWasmObject) { b, obj in
+        var arguments = [Variable]()
+        arguments = [b.loadInt(Int64(Int.random(in: 0...42)))]
+        b.callMethod("get", on: obj, withArgs: arguments)
+    },
+    
+    CodeGenerator("BufferSourceGenerator") { b in
+        var initialValues = [Variable]()
+        for index in 0..<10 {
+            initialValues.append(b.loadInt(Int64(Int.random(in: 0...42))))
+        }
+        let AlterableArray = b.createArray(with: initialValues)
+        let constructor = b.loadBuiltin("Uint8Array")
+        b.construct(constructor, withArgs: [AlterableArray])
+    },
+    
+    CodeGenerator("GlobalWasmObjectCallGenerator", input: .GlobalWasmObject) { b, obj in
+        let methodName = b.type(of: obj).randomMethod() ?? b.genMethodName()
+        let arguments = b.generateCallArguments(forMethod: methodName, on: obj)
+        b.callMethod(methodName, on: obj, withArgs: arguments)
+    },
+    
+    CodeGenerator("TableWasmObjectCallGenerator", input: .TableWasmObject) { b, obj in
+        let methodName = b.type(of: obj).randomMethod() ?? b.genMethodName()
+        let arguments:[Variable]
+        
+        switch methodName {
+        case "get":
+            arguments = [b.loadInt(Int64(Int.random(in: 0...42)))]
+        case "grow":
+            arguments = [b.loadInt(Int64(Int.random(in: 0...42)))]
+        default:
+            arguments = b.generateCallArguments(forMethod: methodName, on: obj)
+        }
+        
+        b.callMethod(methodName, on: obj, withArgs: arguments)
+    },
+    
+    CodeGenerator("MemoryWasmObjectCallGenerator", input: .MemoryWasmObject) { b, obj in
+        let methodName = b.type(of: obj).randomMethod() ?? b.genMethodName()
+        let arguments = b.generateCallArguments(forMethod: methodName, on: obj)
+        b.callMethod(methodName, on: obj, withArgs: arguments)
+    },
+    
+    CodeGenerator("InstanceWasmObjectCallGenerator", input: .InstanceWasmObject) { b, obj in
+        let methodName = b.type(of: obj).randomMethod() ?? b.genMethodName()
+        let arguments = b.generateCallArguments(forMethod: methodName, on: obj)
+        b.callMethod(methodName, on: obj, withArgs: arguments)
+    },
+    
+    CodeGenerator("ModuleConstructorWasmObjectCallGenerator") { b in
+        let Module = b.reuseOrLoadBuiltin("WebAssembly.Module")
+        guard let method = b.type(of: Module).randomMethod() else { return }
+        let args = b.generateCallArguments(forMethod: method, on: Module)
+        b.callMethod(method, on: Module, withArgs: args)
+    },
+    
+    
+
     //
     // END WASM FEATURE
     //

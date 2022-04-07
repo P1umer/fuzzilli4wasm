@@ -97,7 +97,7 @@ public class Fuzzer {
     public let trivialCodeGenerators: [CodeGenerator] = [
 //            CodeGenerators.get("IntegerGenerator"),
 //            CodeGenerators.get("StringGenerator"),
-            CodeGenerators.get("BuiltinGenerator"),
+//            CodeGenerators.get("BuiltinGenerator"),
 //            CodeGenerators.get("RegExpGenerator"),
 //            CodeGenerators.get("BigIntGenerator"),
 //            CodeGenerators.get("FloatGenerator"),
@@ -105,6 +105,11 @@ public class Fuzzer {
 //            CodeGenerators.get("IntArrayGenerator"),
 //            CodeGenerators.get("TypedArrayGenerator"),
 //            CodeGenerators.get("ObjectArrayGenerator"),
+            CodeGenerators.get("GlobalWasmObjectCallGenerator"),
+            CodeGenerators.get("TableWasmObjectCallGenerator"),
+            CodeGenerators.get("MemoryWasmObjectCallGenerator"),
+            CodeGenerators.get("InstanceWasmObjectCallGenerator"),
+            CodeGenerators.get("ModuleConstructorWasmObjectCallGenerator"),
         ]
 
     /// Constructs a new fuzzer instance with the provided components.
