@@ -134,11 +134,12 @@ let codeGeneratorWeights = [
     "BufferSourceGenerator":                           1,
     "FuncRefObjectGenerator":                          1,
     
-    "GlobalWasmObjectCallGenerator":                   100,
-    "TableWasmObjectCallGenerator":                    100,
-    "MemoryWasmObjectCallGenerator":                   100,
-    "InstanceWasmObjectCallGenerator":                 100,
-    "ModuleConstructorWasmObjectCallGenerator":        100,
+    "GlobalWasmObjectCallGenerator":                   1,
+    "TableWasmObjectCallGenerator":                    1,
+    "MemoryWasmObjectCallGenerator":                   1,
+    "InstanceWasmObjectCallGenerator":                 1,
+    "ModuleConstructorWasmObjectCallGenerator":        1,
+    "WasmObjectCallGenerator":                         100,
     
     // END WASM FEATURE
     

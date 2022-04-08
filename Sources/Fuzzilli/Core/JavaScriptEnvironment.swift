@@ -564,7 +564,7 @@ public extension Type {
     // BEGIN WASM FEATURES
     //
     /// Type of Javascript Wasm object
-    static let WasmObject = Type.object(ofGroup: "WebAssembly", withProperties: ["__proto__"], withMethods:["compile", "compileStreaming", "instantiate", "instantiateStreaming", "validate"])
+    static let WasmObject = Type.object(ofGroup: "WebAssembly", withProperties: ["__proto__"], withMethods:["compile", /*"compileStreaming",*/ "instantiate", /*"instantiateStreaming", */"validate"])
     
     /// Type of Javascript Wasm Global object Constructor
     static let GlobalWasmConstructor = Type.constructor([.plain(.object()), .plain(.float)] => .GlobalWasmObject)
@@ -1301,11 +1301,11 @@ public extension ObjectGroup {
             "__proto__"   : .object(),
         ],
         methods: [
-            "compile"     : [.plain(.string), .opt(.function())] => .unknown,
-            "compileStreaming" : [.plain(.anything), .opt(.function()), .opt(.number | .string)] => .jsString,
-            "instantiate" :[.plain(.string), .opt(.function())] => .unknown,
-            "instantiateStreaming" :[.plain(.string), .opt(.function())] => .unknown,
-            "validate": [.plain(.string), .opt(.function())] => .unknown,
+            "compile"               : [.plain(.jsTypedArray("Uint8Array"))] => .jsPromise,
+//            "compileStreaming"      : [] => .jsPromise,
+            "instantiate"           : [.plain(.jsTypedArray("Uint8Array")), .opt(.ImportObject)] => .jsPromise,
+//            "instantiateStreaming"  : [.plain(.string), .opt(.function())] => .jsPromise,
+            "validate"              : [.plain(.jsTypedArray("Uint8Array"))] => .boolean
         ]
     )
     

@@ -1045,6 +1045,13 @@ public let CodeGenerators: [CodeGenerator] = [
         b.callMethod(method, on: Module, withArgs: args)
     },
     
+    CodeGenerator("WasmObjectCallGenerator") { b in
+        let Module = b.reuseOrLoadBuiltin("WebAssembly")
+        guard let method = b.type(of: Module).randomMethod() else { return }
+        let args = b.generateCallArguments(forMethod: method, on: Module)
+        b.callMethod(method, on: Module, withArgs: args)
+    },
+    
     
 
     //
